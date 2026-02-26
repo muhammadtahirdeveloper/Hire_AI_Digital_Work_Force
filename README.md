@@ -1,1 +1,3 @@
-# Hire_AI_Digital_Work_Force
+# Hire AI Digital Work Force
+
+AI-powered digital workforce platform.
