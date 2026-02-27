@@ -41,5 +41,23 @@ APP_PORT = int(os.getenv("APP_PORT", "8000"))
 APP_ENV = os.getenv("APP_ENV", "development")
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 
+# --- Google Calendar ---
+GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "primary")
+
+# --- HubSpot CRM ---
+HUBSPOT_API_KEY = os.getenv("HUBSPOT_API_KEY", "")
+HUBSPOT_BASE_URL = os.getenv(
+    "HUBSPOT_BASE_URL", "https://api.hubapi.com"
+)
+
+# --- Twilio (WhatsApp Escalation) ---
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "")
+ESCALATION_WHATSAPP_TO = os.getenv("ESCALATION_WHATSAPP_TO", "")
+
+# --- Slack (Escalation) ---
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+
 # --- Scheduler ---
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
