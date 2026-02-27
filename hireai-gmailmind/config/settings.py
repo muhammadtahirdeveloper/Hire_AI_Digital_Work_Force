@@ -59,5 +59,9 @@ ESCALATION_WHATSAPP_TO = os.getenv("ESCALATION_WHATSAPP_TO", "")
 # --- Slack (Escalation) ---
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 
+# --- Safety ---
+DAILY_ACTION_LIMIT = int(os.getenv("DAILY_ACTION_LIMIT", "200"))
+MAX_RECIPIENTS_PER_SEND = int(os.getenv("MAX_RECIPIENTS_PER_SEND", "50"))
+
 # --- Scheduler ---
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
