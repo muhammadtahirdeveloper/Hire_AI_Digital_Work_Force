@@ -1,0 +1,15 @@
+openai-agents
+fastapi
+uvicorn
+celery
+redis
+google-api-python-client
+google-auth-oauthlib
+psycopg2-binary
+pgvector
+sqlalchemy
+alembic
+python-dotenv
+cryptography
+pydantic
+httpx
