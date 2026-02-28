@@ -15,6 +15,7 @@ x-gmailmind-common: &gmailmind-common
   env_file:
     - .env
   environment:
+    PYTHONPATH: /app
     DATABASE_URL: postgresql://postgres:postgres@postgres:5432/gmailmind
     REDIS_URL: redis://redis:6379/0
     CELERY_BROKER_URL: redis://redis:6379/0
@@ -33,7 +34,9 @@ services:
   gmailmind-api:
     <<: *gmailmind-common
     container_name: gmailmind-api
-    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: >
+      sh -c "python scripts/setup_db.py &&
+             uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

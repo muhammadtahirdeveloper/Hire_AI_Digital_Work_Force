@@ -21,8 +21,18 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application source code
-COPY . .
+# Copy package marker so Python recognises top-level modules
+COPY __init__.py .
+
+# Copy all application source packages
+COPY agent/    ./agent/
+COPY tools/    ./tools/
+COPY memory/   ./memory/
+COPY config/   ./config/
+COPY scheduler/ ./scheduler/
+COPY models/   ./models/
+COPY api/      ./api/
+COPY scripts/  ./scripts/
 
 # Expose the FastAPI port
 EXPOSE 8000

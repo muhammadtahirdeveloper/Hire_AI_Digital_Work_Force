@@ -12,3 +12,8 @@ build/
 .idea/
 .vscode/
 *.log
+celerybeat-schedule
+celerybeat-schedule.db
+credentials.json
+token.json
+token.json.enc
