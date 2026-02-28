@@ -63,5 +63,12 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 DAILY_ACTION_LIMIT = int(os.getenv("DAILY_ACTION_LIMIT", "200"))
 MAX_RECIPIENTS_PER_SEND = int(os.getenv("MAX_RECIPIENTS_PER_SEND", "50"))
 
+# --- JWT / Auth ---
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+
+# --- CORS ---
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+
 # --- Scheduler ---
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))

@@ -15,6 +15,7 @@ All functions expect a pre-authenticated ``googleapiclient.discovery.Resource``
 import base64
 import logging
 from email.mime.text import MIMEText
+from email.utils import parsedate_to_datetime
 from typing import Optional
 
 from googleapiclient.discovery import Resource
@@ -34,6 +35,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _parse_date(raw: str):
+    """Parse an RFC 2822 date string into a datetime, or return None."""
+    if not raw:
+        return None
+    try:
+        return parsedate_to_datetime(raw)
+    except Exception:
+        return None
+
 
 def _parse_email_address(raw: str) -> EmailAddress:
     """Parse a 'Display Name <email@example.com>' string into an EmailAddress.
@@ -114,7 +125,7 @@ def _message_to_email(msg: dict) -> Email:
         subject=_get_header(headers, "Subject"),
         sender=_parse_email_address(sender_raw) if sender_raw else EmailAddress(email="unknown"),
         to=to_list,
-        date=_get_header(headers, "Date") or None,
+        date=_parse_date(_get_header(headers, "Date")),
         snippet=msg.get("snippet", ""),
         body=_decode_body(payload),
         labels=label_ids,

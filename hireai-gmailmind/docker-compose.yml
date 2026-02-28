@@ -1,0 +1,108 @@
+# ============================================
+# GmailMind — Local Development Stack
+# ============================================
+# Usage:  docker-compose up --build
+# Stop:   docker-compose down
+# Reset:  docker-compose down -v  (removes volumes)
+# ============================================
+
+version: "3.9"
+
+x-gmailmind-common: &gmailmind-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env
+  environment:
+    DATABASE_URL: postgresql://postgres:postgres@postgres:5432/gmailmind
+    REDIS_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/1
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  # ------------------------------------------
+  # FastAPI — Main API server
+  # ------------------------------------------
+  gmailmind-api:
+    <<: *gmailmind-common
+    container_name: gmailmind-api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ------------------------------------------
+  # Celery Worker — Processes agent tasks
+  # ------------------------------------------
+  gmailmind-worker:
+    <<: *gmailmind-common
+    container_name: gmailmind-worker
+    command: celery -A scheduler.celery_app worker --loglevel=info --concurrency=2 -Q default,agent,followups,reports
+    volumes:
+      - .:/app
+
+  # ------------------------------------------
+  # Celery Beat — Periodic task scheduler
+  # ------------------------------------------
+  gmailmind-scheduler:
+    <<: *gmailmind-common
+    container_name: gmailmind-scheduler
+    command: celery -A scheduler.celery_app beat --loglevel=info
+    volumes:
+      - .:/app
+
+  # ------------------------------------------
+  # PostgreSQL + pgvector
+  # ------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: gmailmind-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gmailmind
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gmailmind"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ------------------------------------------
+  # Redis — Celery message broker
+  # ------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: gmailmind-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

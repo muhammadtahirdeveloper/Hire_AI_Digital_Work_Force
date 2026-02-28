@@ -144,3 +144,13 @@ class SemanticSearchResult(BaseModel):
     subject: Optional[str] = None
     body_preview: Optional[str] = None
     similarity: float = Field(..., description="Cosine similarity score (0-1)")
+
+
+# ---------------------------------------------------------------------------
+# Convenience aliases — allow ``from memory.schemas import SenderProfile``
+# ---------------------------------------------------------------------------
+
+SenderProfile = SenderProfileBase
+ActionLog = ActionLogCreate
+FollowUp = FollowUpCreate
+EmailEmbedding = EmailEmbeddingCreate

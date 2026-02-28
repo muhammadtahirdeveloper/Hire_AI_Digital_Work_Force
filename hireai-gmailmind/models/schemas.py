@@ -68,7 +68,7 @@ class ActionLog(Base):
     action_taken = Column(String(255), nullable=False)
     tool_used = Column(String(128), nullable=False)
     outcome = Column(Text, nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    extra_metadata = Column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
         Index("ix_action_logs_email_from", "email_from"),

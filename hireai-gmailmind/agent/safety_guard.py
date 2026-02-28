@@ -105,6 +105,9 @@ class SafetyGuard:
         re.compile(r"(viagra|cialis|lottery|winner|prince)", re.IGNORECASE),
         re.compile(r"(earn\s+money|make\s+\$|free\s+gift)", re.IGNORECASE),
         re.compile(r"(nigerian|inheritance|million\s+dollars)", re.IGNORECASE),
+        re.compile(r"\b(win|won|congratulations)\b", re.IGNORECASE),
+        re.compile(r"\bfree\b.*\b(money|cash|prize|offer)\b", re.IGNORECASE),
+        re.compile(r"\bnoreply@", re.IGNORECASE),
     ]
 
     # Financial action verbs to block
@@ -125,6 +128,7 @@ class SafetyGuard:
     # Actions that permanently delete data
     _DESTRUCTIVE_ACTIONS: set[str] = {
         "delete_email",
+        "delete_email_permanently",
         "trash_email_permanently",
         "purge",
         "expunge",
@@ -246,7 +250,7 @@ class SafetyGuard:
             if val:
                 text_parts.append(str(val))
 
-        sender = email.get("sender", "")
+        sender = email.get("sender", "") or email.get("from", "")
         if isinstance(sender, dict):
             sender = sender.get("email", "")
         text_parts.append(str(sender))
