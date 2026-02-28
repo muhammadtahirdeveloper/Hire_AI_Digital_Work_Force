@@ -5,8 +5,11 @@ Routes:
   GET /auth/google/callback — Handle OAuth callback, save token to database.
 """
 
+import hashlib
 import json
 import logging
+import os
+import base64
 
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Query, status
@@ -65,6 +68,18 @@ def _build_flow() -> Flow:
     return flow
 
 
+# In-memory store: state -> code_verifier (cleared after use)
+_pkce_store: dict[str, str] = {}
+
+
+def _generate_pkce() -> tuple[str, str]:
+    """Generate a PKCE code_verifier and code_challenge (S256)."""
+    code_verifier = base64.urlsafe_b64encode(os.urandom(40)).rstrip(b"=").decode()
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return code_verifier, code_challenge
+
+
 def _encrypt_token(token_data: dict) -> str:
     """Encrypt token JSON with Fernet. Falls back to plain JSON if no key."""
     raw = json.dumps(token_data)
@@ -95,13 +110,20 @@ async def google_auth_redirect():
         )
 
     flow = _build_flow()
-    authorization_url, _ = flow.authorization_url(
+    code_verifier, code_challenge = _generate_pkce()
+
+    authorization_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        code_challenge=code_challenge,
+        code_challenge_method="S256",
     )
 
-    logger.info("Redirecting to Google OAuth consent screen.")
+    # Store code_verifier keyed by state so the callback can retrieve it.
+    _pkce_store[state] = code_verifier
+
+    logger.info("Redirecting to Google OAuth consent screen (PKCE enabled).")
     return RedirectResponse(url=authorization_url)
 
 
@@ -117,13 +139,22 @@ async def google_auth_callback(
 ):
     """Handle the Google OAuth2 callback.
 
-    Exchanges the authorization code for access + refresh tokens,
-    encrypts the token data, and saves it to the user_credentials table.
+    Exchanges the authorization code for access + refresh tokens using
+    the PKCE code_verifier, encrypts the token data, and saves it to
+    the user_credentials table.
     """
+    # Retrieve and consume the code_verifier for this state.
+    code_verifier = _pkce_store.pop(state, None)
+    if not code_verifier:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OAuth state. Please restart the flow at /auth/google",
+        )
+
     flow = _build_flow()
 
     try:
-        flow.fetch_token(code=code)
+        flow.fetch_token(code=code, code_verifier=code_verifier)
     except Exception as exc:
         logger.error("Failed to exchange authorization code: %s", exc)
         raise HTTPException(
