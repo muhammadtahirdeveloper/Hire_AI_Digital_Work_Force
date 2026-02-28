@@ -28,7 +28,8 @@ from agent.safety_guard import SafetyViolationError, safety_guard
 from agent.tool_wrappers import set_services
 from config.business_config import load_business_config
 from config.credentials import build_credentials, refresh_credentials
-from config.settings import OPENAI_API_KEY, POLL_INTERVAL_SECONDS
+from config.database import SessionLocal
+from config.settings import ENCRYPTION_KEY, OPENAI_API_KEY, POLL_INTERVAL_SECONDS
 from memory.long_term import (
     create_follow_up,
     get_actions_for_sender,
@@ -48,11 +49,76 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-def _build_gmail_service(user_config: dict[str, Any]) -> Any:
-    """Build an authenticated Gmail API service from stored credentials.
+def _load_token_from_db(user_id: str) -> dict[str, Any]:
+    """Read and decrypt OAuth token from the user_credentials table.
 
     Args:
-        user_config: Business config that may contain OAuth token data.
+        user_id: The user ID to look up.
+
+    Returns:
+        Decrypted token data dict.
+
+    Raises:
+        RuntimeError: If no credentials are found for the user.
+    """
+    from cryptography.fernet import Fernet
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        row = db.execute(
+            text("SELECT encrypted_creds FROM user_credentials WHERE user_id = :uid"),
+            {"uid": user_id},
+        ).fetchone()
+    finally:
+        db.close()
+
+    if not row or not row[0]:
+        raise RuntimeError(
+            f"No OAuth token found in database for user '{user_id}'. "
+            "Run the OAuth setup flow first: visit /auth/google"
+        )
+
+    raw = row[0]
+
+    # Decrypt if ENCRYPTION_KEY is set (matches how auth.py saves it).
+    if ENCRYPTION_KEY:
+        try:
+            fernet = Fernet(ENCRYPTION_KEY.encode())
+            raw = fernet.decrypt(raw.encode()).decode()
+        except Exception:
+            # Token may have been stored as plain JSON — try using as-is.
+            pass
+
+    return json.loads(raw)
+
+
+def _build_credentials_from_db(user_id: str):
+    """Build Google OAuth2 Credentials from database-stored token.
+
+    Args:
+        user_id: The user ID whose credentials to load.
+
+    Returns:
+        A refreshed google.oauth2.credentials.Credentials instance.
+    """
+    token_data = _load_token_from_db(user_id)
+
+    creds = build_credentials(
+        token=token_data.get("token", ""),
+        refresh_token=token_data.get("refresh_token", ""),
+        token_uri=token_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+    )
+    creds = refresh_credentials(creds)
+    return creds
+
+
+def _build_gmail_service(user_config: dict[str, Any], user_id: str = "default") -> Any:
+    """Build an authenticated Gmail API service from database credentials.
+
+    Args:
+        user_config: Business config (kept for interface compatibility).
+        user_id: User ID to look up credentials in user_credentials table.
 
     Returns:
         An authenticated Gmail API ``Resource`` object.
@@ -62,44 +128,23 @@ def _build_gmail_service(user_config: dict[str, Any]) -> Any:
     """
     from googleapiclient.discovery import build as google_build
 
-    token_data = user_config.get("oauth_token", {})
-    if not token_data:
-        raise RuntimeError(
-            "No OAuth token found in user config. "
-            "Run the OAuth setup flow first."
-        )
-
-    creds = build_credentials(
-        token=token_data.get("access_token", ""),
-        refresh_token=token_data.get("refresh_token", ""),
-    )
-    creds = refresh_credentials(creds)
-
+    creds = _build_credentials_from_db(user_id)
     service = google_build("gmail", "v1", credentials=creds)
-    logger.info("Gmail service built successfully.")
+    logger.info("Gmail service built successfully (user_id=%s).", user_id)
     return service
 
 
-def _build_calendar_service(user_config: dict[str, Any]) -> Optional[Any]:
+def _build_calendar_service(user_config: dict[str, Any], user_id: str = "default") -> Optional[Any]:
     """Build an authenticated Google Calendar service (optional).
 
-    Returns None if Calendar scopes are not configured.
+    Reads credentials from the database. Returns None if not available.
     """
     try:
         from googleapiclient.discovery import build as google_build
 
-        token_data = user_config.get("oauth_token", {})
-        if not token_data:
-            return None
-
-        creds = build_credentials(
-            token=token_data.get("access_token", ""),
-            refresh_token=token_data.get("refresh_token", ""),
-        )
-        creds = refresh_credentials(creds)
-
+        creds = _build_credentials_from_db(user_id)
         service = google_build("calendar", "v3", credentials=creds)
-        logger.info("Calendar service built successfully.")
+        logger.info("Calendar service built successfully (user_id=%s).", user_id)
         return service
     except Exception as exc:
         logger.warning("Calendar service not available: %s", exc)
@@ -472,10 +517,11 @@ async def run_agent_loop(
         single_run,
     )
 
-    # Build services
+    # Build services (read OAuth token from database)
+    _uid = user_id or "default"
     try:
-        gmail_service = _build_gmail_service(user_config)
-        calendar_service = _build_calendar_service(user_config)
+        gmail_service = _build_gmail_service(user_config, user_id=_uid)
+        calendar_service = _build_calendar_service(user_config, user_id=_uid)
         set_services(gmail_service, calendar_service)
     except RuntimeError as exc:
         logger.error("Cannot start agent loop: %s", exc)
