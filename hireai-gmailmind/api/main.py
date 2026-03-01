@@ -15,7 +15,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import agent, auth, config, reports
+from api.routes import agent, auth, config, hr_routes, orchestrator_routes, reports
 from config.settings import APP_ENV, CORS_ORIGINS, DEBUG
 
 logging.basicConfig(
@@ -57,6 +57,8 @@ app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(agent.router, prefix="/agents", tags=["Agents"])
 app.include_router(config.router, prefix="/config", tags=["Config"])
 app.include_router(reports.router, prefix="/reports", tags=["Reports"])
+app.include_router(orchestrator_routes.router, prefix="/platform", tags=["Platform"])
+app.include_router(hr_routes.router, prefix="/hr", tags=["HR"])
 
 
 # ============================================================================
