@@ -302,8 +302,31 @@ def seed_business_rules() -> None:
           f"{len(DEFAULT_BUSINESS_RULES) - inserted} already existed.")
 
 
+def add_phase2_columns() -> None:
+    """Add Phase 2 columns to existing tables (idempotent)."""
+
+    _alter_sql = [
+        # Add tier column to user_subscriptions
+        "ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS tier VARCHAR(10) DEFAULT 'tier2';",
+        # Add industry column to user_configs
+        "ALTER TABLE user_configs ADD COLUMN IF NOT EXISTS industry VARCHAR(20) DEFAULT 'general';",
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _alter_sql:
+            try:
+                conn.execute(text(stmt))
+            except Exception as exc:
+                print(f"[setup_db] Column migration skipped: {exc}")
+        conn.commit()
+
+    print("[setup_db] Phase 2 columns added:")
+    print("  - user_subscriptions.tier (default: tier2)")
+    print("  - user_configs.industry (default: general)")
+
+
 def main() -> None:
-    """Run full database setup: tables, indexes, seed data."""
+    """Run full database setup: tables, indexes, seed data, Phase 2 columns."""
     print("=" * 50)
     print(" GmailMind — Database Setup")
     print("=" * 50)
@@ -314,6 +337,8 @@ def main() -> None:
     create_indexes()
     print()
     seed_business_rules()
+    print()
+    add_phase2_columns()
 
     print()
     print("[setup_db] All done. Database is ready.")

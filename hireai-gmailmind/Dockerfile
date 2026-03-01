@@ -31,8 +31,9 @@ COPY memory/   ./memory/
 COPY config/   ./config/
 COPY scheduler/ ./scheduler/
 COPY models/   ./models/
-COPY api/      ./api/
-COPY scripts/  ./scripts/
+COPY api/          ./api/
+COPY scripts/      ./scripts/
+COPY orchestrator/ ./orchestrator/
 
 # Expose the FastAPI port
 EXPOSE 8000
