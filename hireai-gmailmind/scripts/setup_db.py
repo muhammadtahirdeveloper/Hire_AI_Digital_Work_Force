@@ -302,6 +302,96 @@ def seed_business_rules() -> None:
           f"{len(DEFAULT_BUSINESS_RULES) - inserted} already existed.")
 
 
+def create_hr_tables() -> None:
+    """Create HR-specific tables for recruitment workflows."""
+
+    _hr_sql = [
+        # Candidates table
+        """
+        CREATE TABLE IF NOT EXISTS candidates (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            email VARCHAR(255) NOT NULL,
+            name VARCHAR(255),
+            phone VARCHAR(50),
+            current_role VARCHAR(255),
+            experience_years INTEGER DEFAULT 0,
+            skills JSONB DEFAULT '[]',
+            education TEXT,
+            location VARCHAR(255),
+            cv_score INTEGER DEFAULT 0,
+            stage VARCHAR(50) DEFAULT 'applied',
+            job_title_applied VARCHAR(255),
+            notes TEXT,
+            source_email_id VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_id, email)
+        );
+        """,
+        # Interviews table
+        """
+        CREATE TABLE IF NOT EXISTS interviews (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            candidate_email VARCHAR(255) NOT NULL,
+            scheduled_at TIMESTAMP NOT NULL,
+            duration_minutes INTEGER DEFAULT 60,
+            interview_type VARCHAR(50) DEFAULT 'video',
+            calendar_event_id VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'scheduled',
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Job requirements table
+        """
+        CREATE TABLE IF NOT EXISTS job_requirements (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            job_title VARCHAR(255) NOT NULL,
+            required_skills JSONB DEFAULT '[]',
+            min_experience_years INTEGER DEFAULT 0,
+            location VARCHAR(255),
+            salary_range VARCHAR(100),
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _hr_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] HR tables created:")
+    print("  - candidates")
+    print("  - interviews")
+    print("  - job_requirements")
+
+
+def create_hr_indexes() -> None:
+    """Create indexes on HR tables for query performance."""
+
+    _hr_index_sql = [
+        "CREATE INDEX IF NOT EXISTS idx_candidates_user_id ON candidates(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_candidates_stage ON candidates(stage);",
+        "CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(user_id, email);",
+        "CREATE INDEX IF NOT EXISTS idx_interviews_user_id ON interviews(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_interviews_scheduled ON interviews(scheduled_at);",
+        "CREATE INDEX IF NOT EXISTS idx_job_requirements_user_id ON job_requirements(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_job_requirements_active ON job_requirements(is_active);",
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _hr_index_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] HR indexes created.")
+
+
 def add_phase2_columns() -> None:
     """Add Phase 2 columns to existing tables (idempotent)."""
 
@@ -339,6 +429,10 @@ def main() -> None:
     seed_business_rules()
     print()
     add_phase2_columns()
+    print()
+    create_hr_tables()
+    print()
+    create_hr_indexes()
 
     print()
     print("[setup_db] All done. Database is ready.")
