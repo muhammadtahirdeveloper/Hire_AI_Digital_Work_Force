@@ -16,6 +16,7 @@ from sqlalchemy import text
 
 from config.database import SessionLocal
 from orchestrator.feature_gates import FeatureGate
+from orchestrator.health_monitor import HealthMonitor
 from orchestrator.orchestrator import GmailMindOrchestrator
 from orchestrator.user_router import UserRouter
 
@@ -27,6 +28,7 @@ router = APIRouter()
 _orchestrator = GmailMindOrchestrator()
 _gates = FeatureGate()
 _user_router = UserRouter()
+_health_monitor = HealthMonitor()
 
 
 # ============================================================================
@@ -203,3 +205,36 @@ async def get_agent_info(user_id: str):
     except Exception as exc:
         logger.exception("Failed to get agent info for user %s", user_id)
         return _err(f"Failed to get agent info: {exc}")
+
+
+# ============================================================================
+# GET /platform/health
+# ============================================================================
+
+
+@router.get("/health", tags=["Platform"])
+async def platform_health():
+    """Get platform health status.
+
+    Returns overall status, active user count, and inactive users.
+    """
+    try:
+        all_users = _health_monitor.check_all_users()
+        inactive = _health_monitor.get_inactive_users(hours=2)
+
+        return _ok({
+            "status": "healthy",
+            "active_users": len(all_users),
+            "inactive_users": [u["user_id"] for u in inactive],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    except Exception as exc:
+        logger.exception("Failed to get platform health")
+        return _ok({
+            "status": "degraded",
+            "active_users": 0,
+            "inactive_users": [],
+            "error": str(exc),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })

@@ -44,38 +44,39 @@ class GmailMindOrchestrator:
             logger.info("Orchestrator: HRAgent not available yet (Phase 2 Prompt 13).")
 
     def process_user(self, user_id: str) -> dict:
-        """Process a user through the orchestration pipeline.
+        """Process a user through the full orchestration pipeline.
 
         Steps:
-            1. Get user tier from database.
-            2. Check daily usage limit for this tier.
-            3. Get user industry from database.
-            4. Look up the correct agent from registry.
-            5. Return routing info (actual agent execution added in Prompt 18).
+            1. Get user tier and check limits.
+            2. Get user industry and route to correct agent.
+            3. Return routing info with available features.
+
+        The caller (scheduler task) uses the routing info to decide
+        which execution path to take:
+        - ``general`` industry → existing reasoning_loop
+        - ``hr`` industry → HRAgent.process_email pipeline
 
         Args:
             user_id: The user ID to process.
 
         Returns:
-            Dict with routing result (status, industry, tier, etc.).
+            Dict with routing result (status, industry, tier, features, etc.).
         """
         logger.info("Orchestrator: Processing user=%s", user_id)
 
-        # Step 1: Get tier
+        # Step 1: Get tier and check limits
         tier = self.gates.get_user_tier(user_id)
 
-        # Step 2: Check daily limit
         if not self.gates.check_daily_limit(user_id):
             logger.warning(
                 "Orchestrator: Daily limit exceeded for user=%s tier=%s. Skipping.",
                 user_id, tier,
             )
-            return {"status": "skipped", "reason": "daily_limit"}
+            return {"status": "skipped", "reason": "daily_limit_exceeded"}
 
-        # Step 3: Get industry
+        # Step 2: Get industry and route
         industry = self.router.get_user_industry(user_id)
 
-        # Step 4: Get agent class
         agent_class = self.registry.get_agent(industry)
         if agent_class is None:
             logger.info(
@@ -85,18 +86,23 @@ class GmailMindOrchestrator:
             industry = "general"
             agent_class = self.registry.get_agent("general")
 
-        # Step 5: Log routing and return
+        # Step 3: Log routing
         agent_name = agent_class.__name__ if agent_class else "Unknown"
         logger.info(
             "Orchestrator: Routing user=%s to %s agent (industry=%s, tier=%s)",
             user_id, agent_name, industry, tier,
         )
 
+        # Step 4: Get available features
+        features = self.gates.TIER_FEATURES.get(tier, {}).get("features", [])
+
         return {
             "status": "routed",
+            "user_id": user_id,
             "industry": industry,
             "tier": tier,
             "agent": agent_name,
+            "features": features,
         }
 
     def get_platform_stats(self) -> dict:

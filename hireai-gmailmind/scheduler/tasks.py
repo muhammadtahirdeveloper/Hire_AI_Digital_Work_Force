@@ -114,6 +114,25 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
     _set_agent_status(user_id, "running")
 
     try:
+        # --- Orchestrator gate check ---
+        from orchestrator.orchestrator import GmailMindOrchestrator
+
+        orchestrator = GmailMindOrchestrator()
+        routing = orchestrator.process_user(user_id)
+        logger.info("[orchestrator] Routing: %s", routing)
+
+        if routing.get("status") == "skipped":
+            _set_agent_status(user_id, "idle")
+            duration = time.monotonic() - start
+            return {
+                "status": "skipped",
+                "user_id": user_id,
+                "started_at": started_at,
+                "duration_s": round(duration, 2),
+                "reason": routing.get("reason", "unknown"),
+            }
+
+        # --- Run the agent loop (existing behaviour) ---
         from agent.reasoning_loop import get_daily_summary, run_agent_loop
         from config.business_config import load_business_config
 
@@ -133,8 +152,10 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
 
         _set_agent_status(user_id, "idle")
         logger.info(
-            "[run_gmailmind_for_user] DONE user=%s duration=%.1fs emails_processed=%d",
+            "[run_gmailmind_for_user] DONE user=%s duration=%.1fs emails_processed=%d "
+            "industry=%s tier=%s",
             user_id, duration, len(summary_items),
+            routing.get("industry", "general"), routing.get("tier", "tier2"),
         )
 
         return {
@@ -143,6 +164,7 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
             "started_at": started_at,
             "duration_s": round(duration, 2),
             "emails_processed": len(summary_items),
+            "routing": routing,
         }
 
     except Exception as exc:
