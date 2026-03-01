@@ -81,6 +81,14 @@ app.conf.beat_schedule = {
         "args": ("default",),
         "options": {"queue": "reports"},
     },
+
+    # --- Weekly HR recruitment report: every Monday at 09:00 UTC ---
+    "send-hr-weekly-report": {
+        "task": "scheduler.tasks.send_hr_weekly_report",
+        "schedule": crontab(hour=9, minute=0, day_of_week=1),
+        "args": ("default",),
+        "options": {"queue": "reports"},
+    },
 }
 
 # Default queue for tasks that don't specify one.

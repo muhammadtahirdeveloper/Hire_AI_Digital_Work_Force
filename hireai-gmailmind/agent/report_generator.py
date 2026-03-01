@@ -397,6 +397,132 @@ class ReportGenerator:
             db.close()
 
     # ------------------------------------------------------------------ #
+    #  4. generate_hr_daily_summary
+    # ------------------------------------------------------------------ #
+
+    def generate_hr_daily_summary(self, user_id: str, date: str) -> dict[str, Any]:
+        """Generate a daily HR recruitment summary.
+
+        Queries candidates created today, interviews scheduled today,
+        and HR-related action logs.
+
+        Args:
+            user_id: The recruiter/user ID.
+            date: Date string in ``YYYY-MM-DD`` format.
+
+        Returns:
+            Dict with HR-specific daily metrics.
+        """
+        day_start, day_end = self._day_range(date)
+
+        db = SessionLocal()
+        try:
+            # New candidates today
+            new_candidates = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM candidates
+                    WHERE user_id = :uid
+                      AND created_at >= :start AND created_at < :end
+                """),
+                {"uid": user_id, "start": day_start, "end": day_end},
+            ).scalar() or 0
+
+            # Candidates per stage (total)
+            stage_rows = db.execute(
+                text("""
+                    SELECT stage, COUNT(*) FROM candidates
+                    WHERE user_id = :uid
+                    GROUP BY stage
+                """),
+                {"uid": user_id},
+            ).fetchall()
+            pipeline = {row[0]: row[1] for row in stage_rows}
+
+            # Interviews scheduled today
+            interviews_scheduled = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM interviews
+                    WHERE user_id = :uid
+                      AND created_at >= :start AND created_at < :end
+                """),
+                {"uid": user_id, "start": day_start, "end": day_end},
+            ).scalar() or 0
+
+            # Interviews happening today
+            interviews_today = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM interviews
+                    WHERE user_id = :uid
+                      AND scheduled_at >= :start AND scheduled_at < :end
+                      AND status = 'scheduled'
+                """),
+                {"uid": user_id, "start": day_start, "end": day_end},
+            ).scalar() or 0
+
+            # HR action logs today
+            hr_actions = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM action_logs
+                    WHERE user_id = :uid
+                      AND timestamp >= :start AND timestamp < :end
+                """),
+                {"uid": user_id, "start": day_start, "end": day_end},
+            ).scalar() or 0
+
+            # Hires today
+            hires = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM candidates
+                    WHERE user_id = :uid
+                      AND stage = 'hired'
+                      AND updated_at >= :start AND updated_at < :end
+                """),
+                {"uid": user_id, "start": day_start, "end": day_end},
+            ).scalar() or 0
+
+            # Rejections today
+            rejections = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM candidates
+                    WHERE user_id = :uid
+                      AND stage = 'rejected'
+                      AND updated_at >= :start AND updated_at < :end
+                """),
+                {"uid": user_id, "start": day_start, "end": day_end},
+            ).scalar() or 0
+
+            report = {
+                "date": date,
+                "user_id": user_id,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "new_candidates": new_candidates,
+                "pipeline": pipeline,
+                "interviews_scheduled": interviews_scheduled,
+                "interviews_today": interviews_today,
+                "hr_actions": hr_actions,
+                "hires": hires,
+                "rejections": rejections,
+                "shortlisted": pipeline.get("screened", 0) + pipeline.get("interview", 0),
+            }
+
+            logger.info(
+                "HR daily summary for %s on %s: %d new CVs, %d interviews.",
+                user_id, date, new_candidates, interviews_scheduled,
+            )
+            return report
+
+        except Exception as exc:
+            logger.error("Error generating HR daily summary: %s", exc)
+            return {
+                "date": date,
+                "user_id": user_id,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "error": str(exc),
+            }
+        finally:
+            db.close()
+
+    # ------------------------------------------------------------------ #
     #  Internal helpers
     # ------------------------------------------------------------------ #
 

@@ -258,8 +258,10 @@ def process_due_followups(self) -> dict[str, Any]:
 def send_daily_report(self, user_id: str) -> dict[str, Any]:
     """Generate and email the end-of-day summary report.
 
-    Collects all actions taken today from the database, builds a
-    summary, and sends it via Gmail to the user's configured email.
+    Tier-aware behaviour:
+      - tier1: email report only.
+      - tier2/tier3: email + WhatsApp report (if configured).
+      - HR industry users: include HR recruitment metrics.
 
     Args:
         user_id: The user to generate the report for.
@@ -273,11 +275,24 @@ def send_daily_report(self, user_id: str) -> dict[str, Any]:
 
     try:
         from config.business_config import load_business_config
+        from config.settings import ESCALATION_WHATSAPP_TO
         from memory.long_term import get_pending_follow_ups
         from memory.schemas import ActionLogRead
 
         config = load_business_config(user_id=user_id)
         owner_email = config.get("owner_email", "")
+
+        # --- Determine user tier and industry ---
+        user_tier = "tier2"
+        user_industry = "general"
+        try:
+            from orchestrator.feature_gates import FeatureGate
+            from orchestrator.user_router import UserRouter
+
+            user_tier = FeatureGate().get_user_tier(user_id)
+            user_industry = UserRouter().get_user_industry(user_id)
+        except Exception:
+            pass
 
         # --- Gather today's actions from the database ---
         db = SessionLocal()
@@ -309,14 +324,30 @@ def send_daily_report(self, user_id: str) -> dict[str, Any]:
             db.close()
 
         # --- Build report ---
-        report = {
+        report: dict[str, Any] = {
             "date": today,
             "user_id": user_id,
             "total_actions": total_actions,
+            "emails_processed": total_actions,
             "unique_senders": len(email_senders),
             "tools_breakdown": tools_used,
             "pending_followups": len(pending_followups),
+            "labeled": 0,
+            "archived": 0,
+            "escalated": 0,
         }
+
+        # --- Include HR metrics if industry is 'hr' ---
+        if user_industry == "hr":
+            try:
+                from agent.report_generator import ReportGenerator
+
+                rg = ReportGenerator()
+                hr_data = rg.generate_hr_daily_summary(user_id, today)
+                report["hr_data"] = hr_data
+                logger.info("[send_daily_report] HR metrics included for user=%s", user_id)
+            except Exception as hr_exc:
+                logger.warning("[send_daily_report] Could not include HR metrics: %s", hr_exc)
 
         # --- Format as email body ---
         tool_lines = "\n".join(
@@ -332,10 +363,21 @@ Pending Follow-ups:    {len(pending_followups)}
 
 Tools Used:
 {tool_lines}
-
----
-This report was generated automatically by GmailMind.
 """
+
+        # Append HR section to email if applicable
+        if report.get("hr_data"):
+            hr = report["hr_data"]
+            email_body += f"""
+HR Recruitment Summary:
+    New CVs:              {hr.get('new_candidates', 0)}
+    Interviews Scheduled: {hr.get('interviews_scheduled', 0)}
+    Interviews Today:     {hr.get('interviews_today', 0)}
+    Hires:                {hr.get('hires', 0)}
+    Rejections:           {hr.get('rejections', 0)}
+"""
+
+        email_body += "\n---\nThis report was generated automatically by GmailMind.\n"
 
         # --- Send via Gmail (if configured) ---
         if owner_email:
@@ -365,6 +407,25 @@ This report was generated automatically by GmailMind.
                 )
         else:
             logger.info("[send_daily_report] No owner_email configured — skipping send.")
+
+        # --- Send WhatsApp report for tier2/tier3 ---
+        if user_tier in ("tier2", "tier3") and ESCALATION_WHATSAPP_TO:
+            try:
+                from tools.whatsapp_tools import send_whatsapp_report
+
+                send_whatsapp_report(
+                    to_phone=ESCALATION_WHATSAPP_TO,
+                    report=report,
+                    report_type="daily",
+                )
+                logger.info(
+                    "[send_daily_report] WhatsApp report sent to %s",
+                    ESCALATION_WHATSAPP_TO,
+                )
+            except Exception as wa_exc:
+                logger.warning(
+                    "[send_daily_report] WhatsApp report failed: %s", wa_exc,
+                )
 
         # --- Reset daily summary accumulator ---
         try:
@@ -398,6 +459,106 @@ This report was generated automatically by GmailMind.
             "status": "error",
             "user_id": user_id,
             "date": today,
+            "duration_s": round(duration, 2),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+# ============================================================================
+# Task 4 — Send weekly HR recruitment report
+# ============================================================================
+
+
+@app.task(bind=True, name="scheduler.tasks.send_hr_weekly_report", max_retries=2)
+def send_hr_weekly_report(self, user_id: str = "default") -> dict[str, Any]:
+    """Generate and send a weekly HR recruitment report.
+
+    Sends via email and WhatsApp (if configured).
+
+    Args:
+        user_id: The recruiter/user ID.
+
+    Returns:
+        A dict with ``status`` and report data.
+    """
+    start = time.monotonic()
+    logger.info("[send_hr_weekly_report] START user=%s", user_id)
+
+    try:
+        from config.business_config import load_business_config
+        from config.settings import ESCALATION_WHATSAPP_TO
+        from skills.hr_skills import HRSkills
+
+        hr_skills = HRSkills()
+        report = hr_skills.generate_weekly_recruitment_report(user_id)
+        whatsapp_text = hr_skills.format_report_for_whatsapp(report)
+
+        config = load_business_config(user_id=user_id)
+        owner_email = config.get("owner_email", "")
+
+        # --- Send via email ---
+        if owner_email:
+            try:
+                from agent.tool_wrappers import services
+                from tools.gmail_tools import send_email as gmail_send
+
+                gmail_svc = services.get("gmail")
+                if gmail_svc:
+                    gmail_send(
+                        gmail_svc,
+                        to=owner_email,
+                        subject=f"GmailMind HR Weekly Report — {report.get('week_start', '')[:10]}",
+                        body=whatsapp_text,
+                    )
+                    logger.info(
+                        "[send_hr_weekly_report] Report emailed to %s", owner_email,
+                    )
+            except Exception as send_exc:
+                logger.warning(
+                    "[send_hr_weekly_report] Email send failed: %s", send_exc,
+                )
+
+        # --- Send via WhatsApp ---
+        if ESCALATION_WHATSAPP_TO:
+            try:
+                from tools.whatsapp_tools import send_whatsapp_report
+
+                send_whatsapp_report(
+                    to_phone=ESCALATION_WHATSAPP_TO,
+                    report=report,
+                    report_type="weekly",
+                )
+                logger.info(
+                    "[send_hr_weekly_report] WhatsApp report sent to %s",
+                    ESCALATION_WHATSAPP_TO,
+                )
+            except Exception as wa_exc:
+                logger.warning(
+                    "[send_hr_weekly_report] WhatsApp report failed: %s", wa_exc,
+                )
+
+        duration = time.monotonic() - start
+        logger.info(
+            "[send_hr_weekly_report] DONE user=%s duration=%.1fs", user_id, duration,
+        )
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "report": report,
+            "duration_s": round(duration, 2),
+        }
+
+    except Exception as exc:
+        duration = time.monotonic() - start
+        logger.exception(
+            "[send_hr_weekly_report] ERROR user=%s after %.1fs: %s",
+            user_id, duration, exc,
+        )
+
+        return {
+            "status": "error",
+            "user_id": user_id,
             "duration_s": round(duration, 2),
             "error": f"{type(exc).__name__}: {exc}",
         }
