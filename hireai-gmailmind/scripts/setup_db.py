@@ -314,7 +314,7 @@ def create_hr_tables() -> None:
             email VARCHAR(255) NOT NULL,
             name VARCHAR(255),
             phone VARCHAR(50),
-            current_role VARCHAR(255),
+            candidate_current_role VARCHAR(255),
             experience_years INTEGER DEFAULT 0,
             skills JSONB DEFAULT '[]',
             education TEXT,

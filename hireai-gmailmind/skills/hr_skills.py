@@ -115,7 +115,7 @@ class HRSkills(BaseSkills):
             like_pattern = f"%{query}%"
             rows = db.execute(
                 text("""
-                    SELECT id, email, name, phone, current_role,
+                    SELECT id, email, name, phone, candidate_current_role,
                            experience_years, skills, cv_score, stage,
                            job_title_applied, created_at
                     FROM candidates
@@ -123,7 +123,7 @@ class HRSkills(BaseSkills):
                       AND (
                         name ILIKE :q
                         OR email ILIKE :q
-                        OR current_role ILIKE :q
+                        OR candidate_current_role ILIKE :q
                         OR skills::text ILIKE :q
                       )
                     ORDER BY created_at DESC
@@ -138,7 +138,7 @@ class HRSkills(BaseSkills):
                     "email": row[1],
                     "name": row[2],
                     "phone": row[3],
-                    "current_role": row[4],
+                    "candidate_current_role": row[4],
                     "experience_years": row[5],
                     "skills": row[6],
                     "cv_score": row[7],

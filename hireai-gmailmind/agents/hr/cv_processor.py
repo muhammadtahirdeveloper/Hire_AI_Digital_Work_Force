@@ -74,7 +74,7 @@ class CVProcessor:
             "Extract candidate info from this email. Return JSON only with these keys: "
             "name (str or null), email (str or null), phone (str or null), "
             "experience_years (int or 0), skills (list of str), "
-            "current_role (str or null), location (str or null), "
+            "candidate_current_role (str or null), location (str or null), "
             "education (str or null), has_cv_attachment (bool).\n\n"
             f"Subject: {subject}\n\n"
             f"Body:\n{email_body[:3000]}"

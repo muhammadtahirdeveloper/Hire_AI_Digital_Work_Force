@@ -33,7 +33,7 @@ class CandidateTracker:
         try:
             row = db.execute(
                 text("""
-                    SELECT id, user_id, email, name, phone, current_role,
+                    SELECT id, user_id, email, name, phone, candidate_current_role,
                            experience_years, skills, education, location,
                            cv_score, stage, job_title_applied, notes,
                            source_email_id, created_at, updated_at
@@ -52,7 +52,7 @@ class CandidateTracker:
                 "email": row[2],
                 "name": row[3],
                 "phone": row[4],
-                "current_role": row[5],
+                "candidate_current_role": row[5],
                 "experience_years": row[6],
                 "skills": row[7],
                 "education": row[8],
@@ -108,7 +108,7 @@ class CandidateTracker:
                         UPDATE candidates SET
                             name = COALESCE(:name, name),
                             phone = COALESCE(:phone, phone),
-                            current_role = COALESCE(:current_role, current_role),
+                            candidate_current_role = COALESCE(:candidate_current_role, candidate_current_role),
                             experience_years = :experience_years,
                             skills = :skills,
                             education = COALESCE(:education, education),
@@ -121,7 +121,7 @@ class CandidateTracker:
                         "email": cv_info.get("email", ""),
                         "name": cv_info.get("name"),
                         "phone": cv_info.get("phone"),
-                        "current_role": cv_info.get("current_role"),
+                        "candidate_current_role": cv_info.get("current_role"),
                         "experience_years": cv_info.get("experience_years", 0),
                         "skills": json.dumps(cv_info.get("skills", [])),
                         "education": cv_info.get("education"),
@@ -136,11 +136,11 @@ class CandidateTracker:
             result = db.execute(
                 text("""
                     INSERT INTO candidates
-                        (user_id, email, name, phone, current_role,
+                        (user_id, email, name, phone, candidate_current_role,
                          experience_years, skills, education, location,
                          job_title_applied, source_email_id, stage)
                     VALUES
-                        (:uid, :email, :name, :phone, :current_role,
+                        (:uid, :email, :name, :phone, :candidate_current_role,
                          :experience_years, :skills, :education, :location,
                          :job_title, :source_email_id, 'applied')
                     RETURNING id
@@ -150,7 +150,7 @@ class CandidateTracker:
                     "email": cv_info.get("email", ""),
                     "name": cv_info.get("name"),
                     "phone": cv_info.get("phone"),
-                    "current_role": cv_info.get("current_role"),
+                    "candidate_current_role": cv_info.get("current_role"),
                     "experience_years": cv_info.get("experience_years", 0),
                     "skills": json.dumps(cv_info.get("skills", [])),
                     "education": cv_info.get("education"),
@@ -270,7 +270,7 @@ class CandidateTracker:
         try:
             rows = db.execute(
                 text("""
-                    SELECT id, email, name, phone, current_role,
+                    SELECT id, email, name, phone, candidate_current_role,
                            experience_years, cv_score, job_title_applied,
                            notes, created_at
                     FROM candidates
@@ -286,7 +286,7 @@ class CandidateTracker:
                     "email": row[1],
                     "name": row[2],
                     "phone": row[3],
-                    "current_role": row[4],
+                    "candidate_current_role": row[4],
                     "experience_years": row[5],
                     "cv_score": row[6],
                     "job_title_applied": row[7],

@@ -70,7 +70,7 @@ async def list_candidates(
 
             rows = db.execute(
                 text("""
-                    SELECT id, email, name, phone, current_role,
+                    SELECT id, email, name, phone, candidate_current_role,
                            experience_years, cv_score, stage,
                            job_title_applied, notes, created_at, updated_at
                     FROM candidates
@@ -88,7 +88,7 @@ async def list_candidates(
         else:
             rows = db.execute(
                 text("""
-                    SELECT id, email, name, phone, current_role,
+                    SELECT id, email, name, phone, candidate_current_role,
                            experience_years, cv_score, stage,
                            job_title_applied, notes, created_at, updated_at
                     FROM candidates
@@ -110,7 +110,7 @@ async def list_candidates(
                 "email": r[1],
                 "name": r[2],
                 "phone": r[3],
-                "current_role": r[4],
+                "candidate_current_role": r[4],
                 "experience_years": r[5],
                 "cv_score": r[6],
                 "stage": r[7],
