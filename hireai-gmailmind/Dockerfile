@@ -34,6 +34,7 @@ COPY models/   ./models/
 COPY api/          ./api/
 COPY scripts/      ./scripts/
 COPY orchestrator/ ./orchestrator/
+COPY agents/       ./agents/
 
 # Expose the FastAPI port
 EXPOSE 8000
