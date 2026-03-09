@@ -78,7 +78,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
         }
 
-        # Add HSTS only when HTTPS is enabled
+        # Add HSTS (Strict-Transport-Security) only when HTTPS is enabled
+        # This header is NOT added for local development (HTTPS=false by default)
+        # Only enable in production with valid SSL certificates (HTTPS=true)
         if self.https_enabled:
             security_headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"

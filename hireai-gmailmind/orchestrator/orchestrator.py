@@ -43,6 +43,20 @@ class GmailMindOrchestrator:
         except ImportError:
             logger.info("Orchestrator: HRAgent not available yet (Phase 2 Prompt 13).")
 
+        try:
+            from agents.real_estate.real_estate_agent import RealEstateAgent
+            self.registry.register("real_estate", RealEstateAgent)
+            logger.info("Orchestrator: RealEstateAgent registered successfully.")
+        except ImportError:
+            logger.info("Orchestrator: RealEstateAgent not available yet (Phase 3 Prompt 27).")
+
+        try:
+            from agents.ecommerce.ecommerce_agent import EcommerceAgent
+            self.registry.register("ecommerce", EcommerceAgent)
+            logger.info("Orchestrator: EcommerceAgent registered successfully.")
+        except ImportError:
+            logger.info("Orchestrator: EcommerceAgent not available yet (Phase 3 Prompt 28).")
+
     def process_user(self, user_id: str) -> dict:
         """Process a user through the full orchestration pipeline.
 
