@@ -20,6 +20,7 @@ x-gmailmind-common: &gmailmind-common
     REDIS_URL: redis://redis:6379/0
     CELERY_BROKER_URL: redis://redis:6379/0
     CELERY_RESULT_BACKEND: redis://redis:6379/1
+    HTTPS: ${HTTPS:-false}  # Set to true in production with real SSL certs
   depends_on:
     postgres:
       condition: service_healthy
@@ -41,6 +42,9 @@ services:
       - "${APP_PORT:-8000}:8000"
     volumes:
       - .:/app
+      - ./ssl:/app/ssl  # Mount SSL certificates (for production HTTPS)
+    # For production HTTPS, use:
+    # command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/ssl/key.pem --ssl-certfile=/app/ssl/cert.pem
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

@@ -5,8 +5,10 @@ Provides persistent storage and retrieval of:
 - Action logs (audit trail of every agent action)
 - Follow-up reminders
 - Semantic search over past emails via pgvector embeddings
+- User credentials (encrypted OAuth tokens)
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -28,6 +30,7 @@ from memory.schemas import (
     SenderProfileUpdate,
 )
 from models.schemas import ActionLog, EmailEmbedding, FollowUp, SenderProfile
+from security.encryption import EncryptionManager
 
 logger = logging.getLogger(__name__)
 
@@ -434,6 +437,119 @@ def semantic_search(
         ]
         logger.info("semantic_search: Returning %d results.", len(results))
         return results
+    finally:
+        if close_db:
+            db.close()
+
+
+# ===========================================================================
+# User Credentials Operations (with encryption)
+# ===========================================================================
+
+
+def save_user_credentials(
+    user_id: str,
+    credentials_data: dict,
+    db: Optional[Session] = None,
+) -> bool:
+    """Save encrypted user credentials (OAuth tokens) to database.
+
+    Args:
+        user_id: User identifier
+        credentials_data: Dict containing access_token, refresh_token, etc.
+        db: Optional existing session
+
+    Returns:
+        bool: True if saved successfully
+    """
+    logger.info("save_user_credentials: Saving credentials for user=%s", user_id)
+    close_db = db is None
+    if db is None:
+        db = SessionLocal()
+
+    try:
+        # Encrypt sensitive fields
+        encryption_manager = EncryptionManager()
+        encrypted_data = encryption_manager.encrypt_dict(
+            credentials_data.copy(),
+            fields=['access_token', 'refresh_token']
+        )
+
+        # Convert to JSON for storage
+        encrypted_json = json.dumps(encrypted_data)
+
+        # Upsert into user_credentials table
+        db.execute(
+            text("""
+                INSERT INTO user_credentials (user_id, encrypted_creds, updated_at)
+                VALUES (:user_id, :creds, NOW())
+                ON CONFLICT (user_id)
+                DO UPDATE SET encrypted_creds = :creds, updated_at = NOW()
+            """),
+            {"user_id": user_id, "creds": encrypted_json}
+        )
+        db.commit()
+
+        logger.info("save_user_credentials: Credentials saved for user=%s", user_id)
+        return True
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("save_user_credentials: Failed for user=%s: %s", user_id, exc)
+        raise
+    finally:
+        if close_db:
+            db.close()
+
+
+def get_user_credentials(
+    user_id: str,
+    db: Optional[Session] = None,
+) -> Optional[dict]:
+    """Retrieve and decrypt user credentials from database.
+
+    Args:
+        user_id: User identifier
+        db: Optional existing session
+
+    Returns:
+        dict: Decrypted credentials data
+        None: If no credentials found
+    """
+    logger.info("get_user_credentials: Fetching credentials for user=%s", user_id)
+    close_db = db is None
+    if db is None:
+        db = SessionLocal()
+
+    try:
+        result = db.execute(
+            text("SELECT encrypted_creds FROM user_credentials WHERE user_id = :user_id"),
+            {"user_id": user_id}
+        ).fetchone()
+
+        if not result or not result[0]:
+            logger.warning("get_user_credentials: No credentials found for user=%s", user_id)
+            return None
+
+        # Parse JSON
+        credentials_data = json.loads(result[0])
+
+        # Decrypt sensitive fields with graceful fallback for legacy plain text data
+        encryption_manager = EncryptionManager()
+        decrypted_data = encryption_manager.decrypt_dict(
+            credentials_data,
+            fields=['access_token', 'refresh_token']
+        )
+
+        logger.info("get_user_credentials: Retrieved credentials for user=%s", user_id)
+        return decrypted_data
+
+    except json.JSONDecodeError as exc:
+        logger.error("get_user_credentials: Invalid JSON for user=%s: %s", user_id, exc)
+        return None
+    except Exception as exc:
+        logger.error("get_user_credentials: Failed for user=%s: %s", user_id, exc)
+        return None
     finally:
         if close_db:
             db.close()

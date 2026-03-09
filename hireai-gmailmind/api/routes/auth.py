@@ -19,12 +19,12 @@ from sqlalchemy import text
 
 from config.database import SessionLocal
 from config.settings import (
-    ENCRYPTION_KEY,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
     GMAIL_SCOPES,
 )
+from memory.long_term import save_user_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -80,13 +80,8 @@ def _generate_pkce() -> tuple[str, str]:
     return code_verifier, code_challenge
 
 
-def _encrypt_token(token_data: dict) -> str:
-    """Encrypt token JSON with Fernet. Falls back to plain JSON if no key."""
-    raw = json.dumps(token_data)
-    if ENCRYPTION_KEY:
-        fernet = Fernet(ENCRYPTION_KEY.encode())
-        return fernet.encrypt(raw.encode()).decode()
-    return raw
+# Note: Token encryption is now handled by memory.long_term.save_user_credentials()
+# using the EncryptionManager class for consistent encryption across the app
 
 
 # ============================================================================
@@ -174,36 +169,20 @@ async def google_auth_callback(
         "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
     }
 
-    # Encrypt and save to database
-    encrypted_creds = _encrypt_token(token_data)
-
+    # Save encrypted credentials to database using EncryptionManager
     # Use "default" as user_id for now (single-user setup).
     # In multi-user mode, extract user_id from the OAuth state parameter.
     user_id = "default"
 
-    db = SessionLocal()
     try:
-        # Upsert into user_credentials
-        db.execute(
-            text("""
-                INSERT INTO user_credentials (user_id, encrypted_creds, updated_at)
-                VALUES (:uid, :creds, NOW())
-                ON CONFLICT (user_id)
-                DO UPDATE SET encrypted_creds = :creds, updated_at = NOW()
-            """),
-            {"uid": user_id, "creds": encrypted_creds},
-        )
-        db.commit()
+        save_user_credentials(user_id, token_data)
         logger.info("OAuth tokens saved for user_id=%s", user_id)
     except Exception as exc:
-        db.rollback()
         logger.error("Failed to save credentials to database: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save credentials: {exc}",
         )
-    finally:
-        db.close()
 
     return _ok({
         "message": "Gmail OAuth authentication successful! Tokens saved.",

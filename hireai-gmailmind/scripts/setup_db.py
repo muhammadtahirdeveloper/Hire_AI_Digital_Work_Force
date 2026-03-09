@@ -415,6 +415,67 @@ def add_phase2_columns() -> None:
     print("  - user_configs.industry (default: general)")
 
 
+def create_security_tables() -> None:
+    """Create security tables for Phase 2.5 (API keys, audit logs)."""
+
+    _security_sql = [
+        # API keys table for authentication
+        """
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            key_hash VARCHAR(64) NOT NULL UNIQUE,
+            is_active BOOLEAN DEFAULT TRUE,
+            last_used TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Security audit logs for compliance and monitoring
+        """
+        CREATE TABLE IF NOT EXISTS security_audit_logs (
+            id SERIAL PRIMARY KEY,
+            event_type VARCHAR(50) NOT NULL,
+            user_id VARCHAR(255),
+            ip_address VARCHAR(45),
+            details JSONB DEFAULT '{}',
+            success BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _security_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] Security tables created:")
+    print("  - api_keys")
+    print("  - security_audit_logs")
+
+
+def create_security_indexes() -> None:
+    """Create indexes on security tables for query performance."""
+
+    _security_index_sql = [
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);",
+        "CREATE INDEX IF NOT EXISTS idx_security_audit_type ON security_audit_logs(event_type);",
+        "CREATE INDEX IF NOT EXISTS idx_security_audit_user ON security_audit_logs(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_security_audit_time ON security_audit_logs(created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_security_audit_success ON security_audit_logs(success);",
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _security_index_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] Security indexes created.")
+
+
 def main() -> None:
     """Run full database setup: tables, indexes, seed data, Phase 2 columns."""
     print("=" * 50)
@@ -433,6 +494,10 @@ def main() -> None:
     create_hr_tables()
     print()
     create_hr_indexes()
+    print()
+    create_security_tables()
+    print()
+    create_security_indexes()
 
     print()
     print("[setup_db] All done. Database is ready.")

@@ -275,6 +275,50 @@ GmailMind enforces 7 **hard rules** that can never be overridden:
 6. Never impersonate anyone
 7. Stop all actions if daily limit is exceeded
 
+## Security Features
+
+GmailMind implements enterprise-grade security:
+
+### Authentication & Authorization
+- **API Key Authentication** - SHA-256 hashed keys with per-request validation
+- **Multi-user isolation** - Per-client data separation with access controls
+- **OAuth 2.0** - Secure Gmail API access with encrypted token storage
+
+### Data Protection
+- **AES-128 Encryption** - Sensitive data encrypted at rest via Fernet
+- **Encrypted credentials** - OAuth tokens never stored in plain text
+- **Secure key storage** - Environment-based key management
+
+### Attack Prevention
+- **Rate Limiting** - Redis-based, configurable per endpoint (100 req/min default)
+- **Input Validation** - Prevents SQL injection, XSS, and path traversal
+- **SQL Injection Protection** - Parameterized queries throughout
+- **CORS Protection** - Whitelist-based origin validation
+- **CSRF Protection** - Token-based validation for state-changing operations
+
+### Headers & Transport
+- **Security Headers** - OWASP compliant (CSP, HSTS, X-Frame-Options, etc.)
+- **HTTPS Support** - TLS 1.2+ with proper certificate validation
+- **HSTS Enforcement** - Strict-Transport-Security when HTTPS enabled
+
+### Monitoring & Compliance
+- **Audit Logging** - All security events tracked in database
+- **Failed login detection** - Brute force attempt monitoring
+- **Security dashboard** - Real-time security status at `/security-status`
+- **Compliance reports** - OWASP, PCI-DSS, GDPR, SOC 2 aligned
+
+### View Security Status
+
+Visit the public security dashboard:
+```
+http://localhost:8000/security-status
+```
+
+Or generate a detailed security report:
+```bash
+curl -H "X-API-Key: YOUR_KEY" http://localhost:8000/security/report/USER_ID
+```
+
 ## License
 
 MIT

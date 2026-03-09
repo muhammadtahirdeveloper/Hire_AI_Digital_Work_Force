@@ -14,10 +14,13 @@ from sqlalchemy import text
 
 from api.middleware import get_current_user
 from config.database import SessionLocal
+from security.rate_limiter import rate_limit_reports
+from security.validators import validate_user_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Apply rate limiting to all report routes
+router = APIRouter(dependencies=[Depends(rate_limit_reports)])
 
 
 # ============================================================================

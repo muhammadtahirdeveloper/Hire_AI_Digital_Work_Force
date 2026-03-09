@@ -15,17 +15,20 @@ import json
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from agents.hr.candidate_tracker import CandidateTracker
 from agents.hr.interview_scheduler import InterviewScheduler
 from config.database import SessionLocal
+from security.rate_limiter import rate_limit_dependency
+from security.validators import sanitize_string, validate_email, validate_user_id
 from skills.hr_skills import HRSkills
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Apply rate limiting to all HR routes at the router level
+router = APIRouter(dependencies=[Depends(rate_limit_dependency)])
 
 # Shared instances
 _tracker = CandidateTracker()
@@ -59,6 +62,10 @@ async def list_candidates(
     page_size: int = Query(20, ge=1, le=100),
 ):
     """List candidates for a user, optionally filtered by stage."""
+    # Validate user_id
+    if not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+
     db = SessionLocal()
     try:
         offset = (page - 1) * page_size
@@ -144,6 +151,12 @@ async def list_candidates(
 @router.get("/{user_id}/candidates/{candidate_email}", tags=["HR"])
 async def get_candidate(user_id: str, candidate_email: str):
     """Get full candidate profile."""
+    # Validate inputs
+    if not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    if not validate_email(candidate_email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+
     try:
         candidate = _tracker.get_candidate(user_id, candidate_email)
         if not candidate:
@@ -171,8 +184,14 @@ async def update_candidate_stage(
     Body:
         {"stage": "interview", "notes": "Passed phone screening"}
     """
+    # Validate inputs
+    if not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    if not validate_email(candidate_email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+
     stage = body.get("stage", "")
-    notes = body.get("notes", "")
+    notes = sanitize_string(body.get("notes", ""), max_length=500)
 
     if stage not in _tracker.STAGES:
         return _err(f"Invalid stage '{stage}'. Valid: {_tracker.STAGES}")

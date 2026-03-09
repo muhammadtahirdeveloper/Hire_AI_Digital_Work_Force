@@ -1,9 +1,10 @@
 """FastAPI application entry point for GmailMind.
 
 Starts the API server with:
+  - Security headers middleware (OWASP best practices).
   - CORS middleware (configured origins).
-  - JWT-based authentication (via ``api.middleware``).
-  - Three route groups: agents, config, reports.
+  - API key authentication (via ``security.middleware``).
+  - Multiple route groups: agents, config, reports, hr, platform.
 
 Run locally::
 
@@ -12,11 +13,14 @@ Run locally::
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import agent, auth, config, hr_routes, orchestrator_routes, reports
+from api.routes import agent, auth, config, hr_routes, orchestrator_routes, reports, security_routes
+from api.routes.security_dashboard import router as security_dashboard_router
 from config.settings import APP_ENV, CORS_ORIGINS, DEBUG
+from security.headers import SecurityHeadersMiddleware
+from security.middleware import verify_api_key
 
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
@@ -35,18 +39,24 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs" if APP_ENV != "production" else None,
     redoc_url="/redoc" if APP_ENV != "production" else None,
+    dependencies=[Depends(verify_api_key)],  # Global API key authentication
 )
 
 # ============================================================================
-# CORS
+# Middleware (order matters: applied in reverse order)
 # ============================================================================
 
+# 1. Security Headers (applied last, wraps response)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 2. CORS (applied second, handles cross-origin requests)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],  # Restrict to needed methods
+    allow_headers=["X-API-Key", "Content-Type", "Authorization"],  # Explicit headers
+    expose_headers=["X-RateLimit-Remaining", "X-RateLimit-Reset"],  # Rate limit info
 )
 
 # ============================================================================
@@ -54,6 +64,8 @@ app.add_middleware(
 # ============================================================================
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
+app.include_router(security_dashboard_router, tags=["Public"])  # Public security status page
+app.include_router(security_routes.router, prefix="/security", tags=["Security"])
 app.include_router(agent.router, prefix="/agents", tags=["Agents"])
 app.include_router(config.router, prefix="/config", tags=["Config"])
 app.include_router(reports.router, prefix="/reports", tags=["Reports"])

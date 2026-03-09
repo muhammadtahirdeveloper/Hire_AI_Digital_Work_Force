@@ -35,6 +35,7 @@ from memory.long_term import (
     get_actions_for_sender,
     get_pending_follow_ups,
     get_sender_memory,
+    get_user_credentials,
     log_action as persist_action,
     update_sender_memory,
 )
@@ -52,6 +53,9 @@ logger = logging.getLogger(__name__)
 def _load_token_from_db(user_id: str) -> dict[str, Any]:
     """Read and decrypt OAuth token from the user_credentials table.
 
+    Uses the new get_user_credentials function with EncryptionManager
+    for consistent encryption handling across the app.
+
     Args:
         user_id: The user ID to look up.
 
@@ -61,36 +65,15 @@ def _load_token_from_db(user_id: str) -> dict[str, Any]:
     Raises:
         RuntimeError: If no credentials are found for the user.
     """
-    from cryptography.fernet import Fernet
-    from sqlalchemy import text
+    credentials = get_user_credentials(user_id)
 
-    db = SessionLocal()
-    try:
-        row = db.execute(
-            text("SELECT encrypted_creds FROM user_credentials WHERE user_id = :uid"),
-            {"uid": user_id},
-        ).fetchone()
-    finally:
-        db.close()
-
-    if not row or not row[0]:
+    if not credentials:
         raise RuntimeError(
             f"No OAuth token found in database for user '{user_id}'. "
             "Run the OAuth setup flow first: visit /auth/google"
         )
 
-    raw = row[0]
-
-    # Decrypt if ENCRYPTION_KEY is set (matches how auth.py saves it).
-    if ENCRYPTION_KEY:
-        try:
-            fernet = Fernet(ENCRYPTION_KEY.encode())
-            raw = fernet.decrypt(raw.encode()).decode()
-        except Exception:
-            # Token may have been stored as plain JSON — try using as-is.
-            pass
-
-    return json.loads(raw)
+    return credentials
 
 
 def _build_credentials_from_db(user_id: str):

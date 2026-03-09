@@ -15,10 +15,13 @@ from sqlalchemy import text
 
 from api.middleware import get_current_user, require_active_subscription
 from config.database import SessionLocal
+from security.rate_limiter import rate_limit_email_processing
+from security.validators import validate_user_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Apply rate limiting to all agent routes
+router = APIRouter(dependencies=[Depends(rate_limit_email_processing)])
 
 
 # ============================================================================
