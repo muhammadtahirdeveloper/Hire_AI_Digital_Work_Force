@@ -13,6 +13,9 @@ from orchestrator.feature_gates import FeatureGate
 
 logger = logging.getLogger(__name__)
 
+# Valid industry types supported by the orchestrator
+VALID_INDUSTRIES = ['general', 'hr', 'real_estate', 'ecommerce']
+
 
 class UserRouter:
     """Routes users to the correct agent based on tier and industry."""
@@ -38,7 +41,8 @@ class UserRouter:
             user_id: The user ID.
 
         Returns:
-            Industry string (e.g. 'general', 'hr'). Defaults to 'general'.
+            Industry string (e.g. 'general', 'hr', 'real_estate', 'ecommerce').
+            Defaults to 'general' if not found or invalid.
         """
         db = SessionLocal()
         try:
@@ -49,6 +53,16 @@ class UserRouter:
 
             if row and row[0]:
                 industry = row[0]
+
+                # Validate industry against supported list
+                if industry not in VALID_INDUSTRIES:
+                    logger.warning(
+                        "UserRouter: Invalid industry '%s' for user=%s. "
+                        "Valid options: %s. Defaulting to 'general'.",
+                        industry, user_id, VALID_INDUSTRIES
+                    )
+                    return "general"
+
                 logger.info("UserRouter: user=%s industry=%s", user_id, industry)
                 return industry
 

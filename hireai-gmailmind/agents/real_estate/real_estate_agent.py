@@ -23,22 +23,8 @@ class RealEstateAgent(BaseAgent):
     supported_tiers = ["tier2", "tier3"]
 
     # Email classification patterns for real estate
+    # NOTE: Order matters! More specific patterns should come first.
     _REAL_ESTATE_CATEGORIES = {
-        "property_inquiry": [
-            r"interested in",
-            r"property",
-            r"viewing",
-            r"visit",
-            r"available",
-            r"for sale",
-            r"for rent",
-            r"listing",
-            r"how much",
-            r"price",
-            r"bedroom",
-            r"apartment",
-            r"house",
-        ],
         "viewing_request": [
             r"schedule.*viewing",
             r"book.*viewing",
@@ -48,14 +34,6 @@ class RealEstateAgent(BaseAgent):
             r"viewing.*available",
             r"show.*property",
             r"visit.*property",
-        ],
-        "rental_application": [
-            r"rental application",
-            r"apply.*rent",
-            r"tenant application",
-            r"application form",
-            r"documents.*rent",
-            r"references",
         ],
         "maintenance_request": [
             r"repair",
@@ -70,6 +48,14 @@ class RealEstateAgent(BaseAgent):
             r"heating",
             r"plumbing",
             r"electrical",
+        ],
+        "rental_application": [
+            r"rental application",
+            r"apply.*rent",
+            r"tenant application",
+            r"application form",
+            r"documents.*rent",
+            r"references",
         ],
         "offer_submission": [
             r"offer",
@@ -95,6 +81,21 @@ class RealEstateAgent(BaseAgent):
             r"rent.*increase",
             r"notice",
             r"eviction",
+        ],
+        "property_inquiry": [
+            r"interested in",
+            r"property",
+            r"viewing",
+            r"visit",
+            r"available",
+            r"for sale",
+            r"for rent",
+            r"listing",
+            r"how much",
+            r"price",
+            r"bedroom",
+            r"apartment",
+            r"house",
         ],
     }
 

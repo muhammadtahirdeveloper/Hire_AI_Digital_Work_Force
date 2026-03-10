@@ -89,6 +89,22 @@ app.conf.beat_schedule = {
         "args": ("default",),
         "options": {"queue": "reports"},
     },
+
+    # --- Weekly Real Estate report: every Monday at 09:00 UTC ---
+    "send-re-weekly-report": {
+        "task": "scheduler.tasks.send_real_estate_weekly_report",
+        "schedule": crontab(hour=9, minute=0, day_of_week=1),
+        "args": ("default",),
+        "options": {"queue": "reports"},
+    },
+
+    # --- Weekly E-commerce report: every Monday at 09:30 UTC ---
+    "send-ecommerce-weekly-report": {
+        "task": "scheduler.tasks.send_ecommerce_weekly_report",
+        "schedule": crontab(hour=9, minute=30, day_of_week=1),
+        "args": ("default",),
+        "options": {"queue": "reports"},
+    },
 }
 
 # Default queue for tasks that don't specify one.

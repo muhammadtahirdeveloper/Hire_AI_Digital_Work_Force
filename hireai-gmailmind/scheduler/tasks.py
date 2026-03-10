@@ -584,3 +584,199 @@ def send_hr_weekly_report(self, user_id: str = "default") -> dict[str, Any]:
             "duration_s": round(duration, 2),
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+# ============================================================================
+# Task 6 — Send Real Estate Weekly Report
+# ============================================================================
+
+
+@app.task(bind=True, name="scheduler.tasks.send_real_estate_weekly_report")
+def send_real_estate_weekly_report(self, user_id: str = "default") -> dict[str, Any]:
+    """Generate and send weekly Real Estate property management report.
+
+    Args:
+        user_id: The property manager/agent user ID.
+
+    Returns:
+        A dict with ``status`` and report data.
+    """
+    start = time.monotonic()
+    logger.info("[send_real_estate_weekly_report] START user=%s", user_id)
+
+    try:
+        from config.business_config import load_business_config
+        from config.settings import ESCALATION_WHATSAPP_TO
+        from skills.real_estate_skills import RealEstateSkills
+
+        re_skills = RealEstateSkills()
+        report = re_skills.generate_weekly_property_report(user_id)
+        whatsapp_text = re_skills.format_report_for_whatsapp(report)
+
+        config = load_business_config(user_id=user_id)
+        owner_email = config.get("owner_email", "")
+
+        # --- Send via email ---
+        if owner_email:
+            try:
+                from agent.tool_wrappers import services
+                from tools.gmail_tools import send_email as gmail_send
+
+                gmail_svc = services.get("gmail")
+                if gmail_svc:
+                    gmail_send(
+                        gmail_svc,
+                        to=owner_email,
+                        subject=f"GmailMind Real Estate Weekly Report",
+                        body=whatsapp_text,
+                    )
+                    logger.info(
+                        "[send_real_estate_weekly_report] Report emailed to %s", owner_email,
+                    )
+            except Exception as send_exc:
+                logger.warning(
+                    "[send_real_estate_weekly_report] Email send failed: %s", send_exc,
+                )
+
+        # --- Send via WhatsApp ---
+        if ESCALATION_WHATSAPP_TO:
+            try:
+                from tools.whatsapp_tools import send_whatsapp_report
+
+                send_whatsapp_report(
+                    to_phone=ESCALATION_WHATSAPP_TO,
+                    report=report,
+                    report_type="weekly",
+                )
+                logger.info(
+                    "[send_real_estate_weekly_report] WhatsApp report sent to %s",
+                    ESCALATION_WHATSAPP_TO,
+                )
+            except Exception as wa_exc:
+                logger.warning(
+                    "[send_real_estate_weekly_report] WhatsApp report failed: %s", wa_exc,
+                )
+
+        duration = time.monotonic() - start
+        logger.info(
+            "[send_real_estate_weekly_report] DONE user=%s duration=%.1fs", user_id, duration,
+        )
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "report": report,
+            "duration_s": round(duration, 2),
+        }
+
+    except Exception as exc:
+        duration = time.monotonic() - start
+        logger.exception(
+            "[send_real_estate_weekly_report] ERROR user=%s after %.1fs: %s",
+            user_id, duration, exc,
+        )
+
+        return {
+            "status": "error",
+            "user_id": user_id,
+            "duration_s": round(duration, 2),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+# ============================================================================
+# Task 7 — Send E-commerce Weekly Report
+# ============================================================================
+
+
+@app.task(bind=True, name="scheduler.tasks.send_ecommerce_weekly_report")
+def send_ecommerce_weekly_report(self, user_id: str = "default") -> dict[str, Any]:
+    """Generate and send weekly E-commerce activity report.
+
+    Args:
+        user_id: The e-commerce business user ID.
+
+    Returns:
+        A dict with ``status`` and report data.
+    """
+    start = time.monotonic()
+    logger.info("[send_ecommerce_weekly_report] START user=%s", user_id)
+
+    try:
+        from config.business_config import load_business_config
+        from config.settings import ESCALATION_WHATSAPP_TO
+        from skills.ecommerce_skills import EcommerceSkills
+
+        ecom_skills = EcommerceSkills()
+        report = ecom_skills.generate_weekly_ecommerce_report(user_id)
+        whatsapp_text = ecom_skills.format_report_for_whatsapp(report)
+
+        config = load_business_config(user_id=user_id)
+        owner_email = config.get("owner_email", "")
+
+        # --- Send via email ---
+        if owner_email:
+            try:
+                from agent.tool_wrappers import services
+                from tools.gmail_tools import send_email as gmail_send
+
+                gmail_svc = services.get("gmail")
+                if gmail_svc:
+                    gmail_send(
+                        gmail_svc,
+                        to=owner_email,
+                        subject=f"GmailMind E-commerce Weekly Report",
+                        body=whatsapp_text,
+                    )
+                    logger.info(
+                        "[send_ecommerce_weekly_report] Report emailed to %s", owner_email,
+                    )
+            except Exception as send_exc:
+                logger.warning(
+                    "[send_ecommerce_weekly_report] Email send failed: %s", send_exc,
+                )
+
+        # --- Send via WhatsApp ---
+        if ESCALATION_WHATSAPP_TO:
+            try:
+                from tools.whatsapp_tools import send_whatsapp_report
+
+                send_whatsapp_report(
+                    to_phone=ESCALATION_WHATSAPP_TO,
+                    report=report,
+                    report_type="weekly",
+                )
+                logger.info(
+                    "[send_ecommerce_weekly_report] WhatsApp report sent to %s",
+                    ESCALATION_WHATSAPP_TO,
+                )
+            except Exception as wa_exc:
+                logger.warning(
+                    "[send_ecommerce_weekly_report] WhatsApp report failed: %s", wa_exc,
+                )
+
+        duration = time.monotonic() - start
+        logger.info(
+            "[send_ecommerce_weekly_report] DONE user=%s duration=%.1fs", user_id, duration,
+        )
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "report": report,
+            "duration_s": round(duration, 2),
+        }
+
+    except Exception as exc:
+        duration = time.monotonic() - start
+        logger.exception(
+            "[send_ecommerce_weekly_report] ERROR user=%s after %.1fs: %s",
+            user_id, duration, exc,
+        )
+
+        return {
+            "status": "error",
+            "user_id": user_id,
+            "duration_s": round(duration, 2),
+            "error": f"{type(exc).__name__}: {exc}",
+        }

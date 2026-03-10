@@ -18,7 +18,7 @@ from config.database import SessionLocal
 from orchestrator.feature_gates import FeatureGate
 from orchestrator.health_monitor import HealthMonitor
 from orchestrator.orchestrator import GmailMindOrchestrator
-from orchestrator.user_router import UserRouter
+from orchestrator.user_router import UserRouter, VALID_INDUSTRIES
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,29 @@ def _ok(data: Any = None) -> dict:
 
 def _err(message: str) -> dict:
     return {"success": False, "data": None, "error": message}
+
+
+# ============================================================================
+# GET /platform/agents
+# ============================================================================
+
+
+@router.get("/agents", tags=["Platform"])
+async def get_registered_agents():
+    """Get list of all registered agent industries.
+
+    Returns:
+        List of registered agent industries and total count.
+    """
+    try:
+        industries = _orchestrator.registry.list_industries()
+        return _ok({
+            "registered_agents": industries,
+            "total": len(industries),
+        })
+    except Exception as exc:
+        logger.exception("Failed to get registered agents")
+        return _err(f"Failed to get agents: {exc}")
 
 
 # ============================================================================
@@ -76,12 +99,28 @@ async def platform_stats():
                     WHERE industry = 'hr'
                 """),
             ).scalar() or 0
+
+            real_estate_count = db.execute(
+                text("""
+                    SELECT COUNT(DISTINCT user_id) FROM user_configs
+                    WHERE industry = 'real_estate'
+                """),
+            ).scalar() or 0
+
+            ecommerce_count = db.execute(
+                text("""
+                    SELECT COUNT(DISTINCT user_id) FROM user_configs
+                    WHERE industry = 'ecommerce'
+                """),
+            ).scalar() or 0
         finally:
             db.close()
 
         stats["agents_running"] = {
             "general": general_count,
             "hr": hr_count,
+            "real_estate": real_estate_count,
+            "ecommerce": ecommerce_count,
         }
 
         return _ok(stats)
@@ -105,12 +144,18 @@ async def setup_user(
 
     Body:
         {
-            "industry": "hr",   // or "general"
+            "industry": "hr",   // general, hr, real_estate, or ecommerce
             "tier": "tier2"     // tier1, tier2, or tier3
         }
     """
     industry = body.get("industry", "general")
     tier = body.get("tier", "tier2")
+
+    # Validate industry
+    if industry not in VALID_INDUSTRIES:
+        return _err(
+            f"Invalid industry '{industry}'. Must be one of: {VALID_INDUSTRIES}"
+        )
 
     # Validate tier
     valid_tiers = ("tier1", "tier2", "tier3")

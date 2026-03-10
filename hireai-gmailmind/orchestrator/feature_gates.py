@@ -34,13 +34,21 @@ class FeatureGate:
                 "escalation", "follow_up", "whatsapp_report",
                 "cv_processing", "interview_scheduler",
                 "candidate_tracker", "basic_crm", "basic_email_report",
+                # Real Estate agent features
+                "property_tracker", "viewing_scheduler",
+                # E-commerce agent features
+                "order_tracker", "refund_manager",
             ],
         },
         "tier3": {
             "price": 99,
             "max_accounts": 9999,
             "max_emails_per_day": 999999,
-            "features": ["all"],
+            "features": [
+                "all",
+                # Tier 3 advanced features
+                "crm_sync", "advanced_analytics", "bulk_email",
+            ],
         },
     }
 

@@ -23,17 +23,19 @@ class EcommerceAgent(BaseAgent):
     supported_tiers = ["tier2", "tier3"]
 
     # Email classification patterns for e-commerce
+    # NOTE: Order matters! More specific patterns should come first.
     _ECOMMERCE_CATEGORIES = {
-        "order_inquiry": [
-            r"order",
-            r"order.*status",
-            r"where.*order",
-            r"track.*order",
-            r"order.*number",
-            r"purchase",
-            r"order.*confirmation",
-            r"when.*arrive",
-            r"delivery",
+        "supplier_email": [
+            r"invoice",
+            r"stock",
+            r"inventory",
+            r"supply",
+            r"wholesale",
+            r"bulk order",
+            r"restock",
+            r"purchase order",
+            r"payment.*due",
+            r"outstanding.*payment",
         ],
         "refund_request": [
             r"refund",
@@ -43,7 +45,6 @@ class EcommerceAgent(BaseAgent):
             r"want.*refund",
             r"charge.*wrong",
             r"incorrect.*charge",
-            r"not.*received",
             r"damaged",
             r"defective",
         ],
@@ -72,17 +73,16 @@ class EcommerceAgent(BaseAgent):
             r"when.*deliver",
             r"track.*package",
         ],
-        "supplier_email": [
-            r"invoice",
-            r"stock",
-            r"inventory",
-            r"supply",
-            r"wholesale",
-            r"bulk order",
-            r"restock",
-            r"purchase order",
-            r"payment.*due",
-            r"outstanding.*payment",
+        "order_inquiry": [
+            r"order",
+            r"order.*status",
+            r"where.*order",
+            r"track.*order",
+            r"order.*number",
+            r"purchase",
+            r"order.*confirmation",
+            r"when.*arrive",
+            r"delivery",
         ],
         "product_inquiry": [
             r"product",

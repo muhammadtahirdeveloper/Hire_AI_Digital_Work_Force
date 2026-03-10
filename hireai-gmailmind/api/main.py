@@ -18,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import agent, auth, config, hr_routes, orchestrator_routes, reports, security_routes
 from api.routes.security_dashboard import router as security_dashboard_router
+from api.routes.real_estate_routes import router as real_estate_router
+from api.routes.ecommerce_routes import router as ecommerce_router
 from config.settings import APP_ENV, CORS_ORIGINS, DEBUG
 from security.headers import SecurityHeadersMiddleware
 from security.middleware import verify_api_key
@@ -71,6 +73,8 @@ app.include_router(config.router, prefix="/config", tags=["Config"])
 app.include_router(reports.router, prefix="/reports", tags=["Reports"])
 app.include_router(orchestrator_routes.router, prefix="/platform", tags=["Platform"])
 app.include_router(hr_routes.router, prefix="/hr", tags=["HR"])
+app.include_router(real_estate_router)  # Prefix /real-estate defined in router
+app.include_router(ecommerce_router)  # Prefix /ecommerce defined in router
 
 
 # ============================================================================

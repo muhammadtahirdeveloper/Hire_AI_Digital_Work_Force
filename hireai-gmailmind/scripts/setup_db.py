@@ -476,6 +476,191 @@ def create_security_indexes() -> None:
     print("[setup_db] Security indexes created.")
 
 
+def create_real_estate_tables() -> None:
+    """Create Real Estate-specific tables for property management workflows."""
+
+    _real_estate_sql = [
+        # Properties table
+        """
+        CREATE TABLE IF NOT EXISTS properties (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            address VARCHAR(500) NOT NULL,
+            property_type VARCHAR(50) DEFAULT 'residential',
+            status VARCHAR(50) DEFAULT 'available',
+            price DECIMAL(12,2),
+            bedrooms INTEGER DEFAULT 0,
+            bathrooms INTEGER DEFAULT 0,
+            size_sqft INTEGER DEFAULT 0,
+            location VARCHAR(255),
+            description TEXT,
+            listing_type VARCHAR(20) DEFAULT 'sale',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Property inquiries table
+        """
+        CREATE TABLE IF NOT EXISTS property_inquiries (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            client_email VARCHAR(320) NOT NULL,
+            property_address VARCHAR(500),
+            inquiry_type VARCHAR(50) DEFAULT 'general',
+            status VARCHAR(50) DEFAULT 'new',
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Property viewings table
+        """
+        CREATE TABLE IF NOT EXISTS property_viewings (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            client_email VARCHAR(320) NOT NULL,
+            property_address VARCHAR(500),
+            viewing_date TIMESTAMP,
+            status VARCHAR(50) DEFAULT 'scheduled',
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Maintenance requests table
+        """
+        CREATE TABLE IF NOT EXISTS maintenance_requests (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            tenant_email VARCHAR(320) NOT NULL,
+            property_address VARCHAR(500),
+            issue_description TEXT,
+            priority VARCHAR(20) DEFAULT 'medium',
+            status VARCHAR(50) DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _real_estate_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] Real Estate tables created:")
+    print("  - properties")
+    print("  - property_inquiries")
+    print("  - property_viewings")
+    print("  - maintenance_requests")
+
+
+def create_real_estate_indexes() -> None:
+    """Create indexes on Real Estate tables for query performance."""
+
+    _real_estate_index_sql = [
+        "CREATE INDEX IF NOT EXISTS idx_properties_user_id ON properties(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_property_inquiries_user ON property_inquiries(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_property_viewings_user ON property_viewings(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_maintenance_user ON maintenance_requests(user_id);",
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _real_estate_index_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] Real Estate indexes created.")
+
+
+def create_ecommerce_tables() -> None:
+    """Create E-commerce-specific tables for customer support workflows."""
+
+    _ecommerce_sql = [
+        # Order inquiries table
+        """
+        CREATE TABLE IF NOT EXISTS order_inquiries (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            customer_email VARCHAR(320) NOT NULL,
+            order_id VARCHAR(100),
+            inquiry_type VARCHAR(50) DEFAULT 'general',
+            status VARCHAR(50) DEFAULT 'open',
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Refund requests table
+        """
+        CREATE TABLE IF NOT EXISTS refund_requests (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            customer_email VARCHAR(320) NOT NULL,
+            order_id VARCHAR(100),
+            reason TEXT,
+            amount DECIMAL(10,2),
+            status VARCHAR(50) DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Customer complaints table
+        """
+        CREATE TABLE IF NOT EXISTS customer_complaints (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            customer_email VARCHAR(320) NOT NULL,
+            description TEXT,
+            priority VARCHAR(20) DEFAULT 'medium',
+            status VARCHAR(50) DEFAULT 'open',
+            resolution TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        # Supplier emails table
+        """
+        CREATE TABLE IF NOT EXISTS supplier_emails (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            supplier_email VARCHAR(320) NOT NULL,
+            subject VARCHAR(500),
+            email_type VARCHAR(50) DEFAULT 'general',
+            status VARCHAR(50) DEFAULT 'received',
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _ecommerce_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] E-commerce tables created:")
+    print("  - order_inquiries")
+    print("  - refund_requests")
+    print("  - customer_complaints")
+    print("  - supplier_emails")
+
+
+def create_ecommerce_indexes() -> None:
+    """Create indexes on E-commerce tables for query performance."""
+
+    _ecommerce_index_sql = [
+        "CREATE INDEX IF NOT EXISTS idx_order_inquiries_user ON order_inquiries(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_refund_requests_user ON refund_requests(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_complaints_user ON customer_complaints(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_supplier_emails_user ON supplier_emails(user_id);",
+    ]
+
+    with engine.connect() as conn:
+        for stmt in _ecommerce_index_sql:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    print("[setup_db] E-commerce indexes created.")
+
+
 def main() -> None:
     """Run full database setup: tables, indexes, seed data, Phase 2 columns."""
     print("=" * 50)
@@ -498,6 +683,14 @@ def main() -> None:
     create_security_tables()
     print()
     create_security_indexes()
+    print()
+    create_real_estate_tables()
+    print()
+    create_real_estate_indexes()
+    print()
+    create_ecommerce_tables()
+    print()
+    create_ecommerce_indexes()
 
     print()
     print("[setup_db] All done. Database is ready.")
