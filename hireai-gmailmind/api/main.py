@@ -20,6 +20,8 @@ from api.routes import agent, auth, config, hr_routes, orchestrator_routes, repo
 from api.routes.security_dashboard import router as security_dashboard_router
 from api.routes.real_estate_routes import router as real_estate_router
 from api.routes.ecommerce_routes import router as ecommerce_router
+from api.routes.dashboard_routes import router as dashboard_router
+from api.routes.frontend_routes import router as frontend_router
 from config.settings import APP_ENV, CORS_ORIGINS, DEBUG
 from security.headers import SecurityHeadersMiddleware
 from security.middleware import verify_api_key
@@ -76,6 +78,10 @@ app.include_router(hr_routes.router, prefix="/hr", tags=["HR"])
 app.include_router(real_estate_router)  # Prefix /real-estate defined in router
 app.include_router(ecommerce_router)  # Prefix /ecommerce defined in router
 
+# Frontend integration routes
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(frontend_router, prefix="/api", tags=["Frontend"])
+
 
 # ============================================================================
 # Health check
@@ -86,3 +92,9 @@ app.include_router(ecommerce_router)  # Prefix /ecommerce defined in router
 async def health_check():
     """Simple health check — returns OK if the API is running."""
     return {"success": True, "data": {"status": "healthy"}, "error": None}
+
+
+@app.get("/api/health/platform", tags=["System"])
+async def platform_health():
+    """Public platform health check — no auth required."""
+    return {"success": True, "data": {"status": "operational", "uptime": 99.9}, "error": None}

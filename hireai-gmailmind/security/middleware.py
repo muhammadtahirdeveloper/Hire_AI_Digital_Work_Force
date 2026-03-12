@@ -21,6 +21,9 @@ PUBLIC_ROUTES = {
     "/docs",
     "/openapi.json",
     "/redoc",
+    "/api/health/platform",
+    "/api/reviews/public",
+    "/api/support/chat",
 }
 
 
