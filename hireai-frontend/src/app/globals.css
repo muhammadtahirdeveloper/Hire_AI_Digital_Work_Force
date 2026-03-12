@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light Theme (Default) */
+    --bg: #FFFFFF;
+    --bg-1: #FAFAFA;
+    --bg-2: #F4F4F5;
+    --bg-3: #EEEEEF;
+    --border: #E4E4E7;
+    --border-2: #D4D4D8;
+    --text: #09090B;
+    --text-2: #3F3F46;
+    --text-3: #71717A;
+    --text-4: #A1A1AA;
+    --navy: #1D4ED8;
+    --navy-hover: #1E40AF;
+    --navy-light: #DBEAFE;
+    --success: #16A34A;
+    --success-light: #DCFCE7;
+    --warning: #D97706;
+    --danger: #DC2626;
+  }
+
+  .dark {
+    /* Dark Theme */
+    --bg: #0A0A0A;
+    --bg-1: #111111;
+    --bg-2: #161616;
+    --bg-3: #1C1C1C;
+    --border: #242424;
+    --border-2: #2E2E2E;
+    --text: #FAFAFA;
+    --text-2: #E4E4E7;
+    --text-3: #A1A1AA;
+    --text-4: #71717A;
+    --navy: #2563EB;
+    --navy-hover: #3B82F6;
+    --navy-light: rgba(29, 78, 216, 0.15);
+    --success: #22C55E;
+    --success-light: rgba(34, 197, 94, 0.1);
+    --warning: #F59E0B;
+    --danger: #EF4444;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-text;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Scrollbar Styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background-2;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border-2 rounded-md;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-4;
+  }
+
+  /* Focus Styles */
+  :focus-visible {
+    @apply outline-none ring-2 ring-navy ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
