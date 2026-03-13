@@ -30,14 +30,14 @@ DATABASE_URL = os.getenv(
 # --- Redis ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL", "redis://localhost:6379/1")
 
 # --- Encryption ---
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 
 # --- App ---
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
-APP_PORT = int(os.getenv("APP_PORT", "8000"))
+APP_PORT = int(os.getenv("APP_PORT") or os.getenv("PORT") or "8000")
 APP_ENV = os.getenv("APP_ENV", "development")
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 
