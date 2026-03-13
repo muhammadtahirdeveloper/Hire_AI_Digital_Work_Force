@@ -122,3 +122,4 @@ Backend project location: `/mnt/e/Digital_AI_WorkForce/hireai-gmailmind/`
 - TypeScript strict mode enabled
 - ESLint configured for Next.js
 - Tailwind CSS with custom design tokens
+<!-- Vercel deployment trigger -->
