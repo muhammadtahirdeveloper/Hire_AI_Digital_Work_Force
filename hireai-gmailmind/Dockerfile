@@ -36,6 +36,10 @@ COPY scripts/      ./scripts/
 COPY orchestrator/ ./orchestrator/
 COPY agents/       ./agents/
 COPY skills/       ./skills/
+COPY security/     ./security/
+
+# Ensure Python can resolve top-level packages from /app
+ENV PYTHONPATH=/app
 
 # Expose the FastAPI port
 EXPOSE 8000
