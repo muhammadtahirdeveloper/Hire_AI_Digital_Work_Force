@@ -4,7 +4,7 @@ const links = [
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
   { href: "/docs", label: "Docs" },
-  { href: "mailto:hireaidigitalemployee@gmail.com", label: "Contact" },
+  { href: "/contact", label: "Contact" },
 ];
 
 export function Footer() {
