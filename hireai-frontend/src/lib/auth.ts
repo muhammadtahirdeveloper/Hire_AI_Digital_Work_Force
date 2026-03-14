@@ -23,7 +23,8 @@ export const authOptions: NextAuthOptions = {
             email: credentials.email,
             password: credentials.password,
           });
-          if (res.data?.user) return res.data.user;
+          const data = res.data?.data || res.data;
+          if (data?.user) return data.user;
           return null;
         } catch {
           return null;

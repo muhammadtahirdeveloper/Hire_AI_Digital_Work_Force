@@ -1,20 +1,27 @@
-"""Google OAuth2 authentication endpoints.
+"""Authentication endpoints — email/password + Google OAuth2.
 
 Routes:
-  GET /auth/google          — Redirect to Google OAuth consent screen.
-  GET /auth/google/callback — Handle OAuth callback, save token to database.
+  POST /auth/register        — Create account with email + password.
+  POST /auth/login           — Login with email + password, return JWT.
+  POST /auth/google-login    — Upsert user from Google OAuth sign-in.
+  GET  /auth/user/{email}    — Get user profile by email.
+  GET  /auth/google          — Redirect to Google OAuth consent screen.
+  GET  /auth/google/callback — Handle OAuth callback, save token to database.
 """
 
 import hashlib
-import json
 import logging
 import os
 import base64
+import uuid
+from datetime import datetime, timedelta, timezone
 
-from cryptography.fernet import Fernet
+import bcrypt
+import jwt
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from google_auth_oauthlib.flow import Flow
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from config.database import SessionLocal
@@ -23,6 +30,8 @@ from config.settings import (
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
     GMAIL_SCOPES,
+    JWT_SECRET,
+    JWT_ALGORITHM,
 )
 from memory.long_term import save_user_credentials
 
@@ -82,6 +91,320 @@ def _generate_pkce() -> tuple[str, str]:
 
 # Note: Token encryption is now handled by memory.long_term.save_user_credentials()
 # using the EncryptionManager class for consistent encryption across the app
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models for email/password auth
+# ---------------------------------------------------------------------------
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class GoogleLoginRequest(BaseModel):
+    email: str
+    name: str = ""
+    image: str = ""
+    google_id: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Helpers — users table auto-creation + JWT
+# ---------------------------------------------------------------------------
+
+
+def _ensure_users_table(db):
+    """Create the users table if it doesn't exist."""
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            name TEXT DEFAULT '',
+            password_hash TEXT,
+            image TEXT DEFAULT '',
+            google_id TEXT,
+            provider TEXT DEFAULT 'credentials',
+            tier TEXT DEFAULT 'trial',
+            agent_type TEXT DEFAULT 'general',
+            is_active BOOLEAN DEFAULT true,
+            setup_complete BOOLEAN DEFAULT false,
+            trial_end_date TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """))
+    db.commit()
+
+
+def _create_jwt(user_id: str, email: str, name: str = "") -> str:
+    """Create a JWT token for the user."""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "name": name,
+        "exp": datetime.now(timezone.utc) + timedelta(days=30),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
+# ============================================================================
+# POST /auth/register — Create account with email + password
+# ============================================================================
+
+
+@router.post("/register")
+async def register(body: RegisterRequest):
+    """Register a new user with email and password."""
+    if not body.email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+
+            existing = db.execute(
+                text("SELECT id FROM users WHERE email = :email"),
+                {"email": body.email.lower()},
+            ).fetchone()
+
+            if existing:
+                raise HTTPException(status_code=409, detail="Email already registered")
+
+            user_id = str(uuid.uuid4())
+            trial_end = datetime.now(timezone.utc) + timedelta(days=7)
+
+            db.execute(
+                text("""
+                    INSERT INTO users (id, email, name, password_hash, provider, tier, trial_end_date)
+                    VALUES (:id, :email, :name, :password_hash, 'credentials', 'trial', :trial_end)
+                """),
+                {
+                    "id": user_id,
+                    "email": body.email.lower(),
+                    "name": body.name or body.email.split("@")[0],
+                    "password_hash": _hash_password(body.password),
+                    "trial_end": trial_end,
+                },
+            )
+            db.commit()
+
+            token = _create_jwt(user_id, body.email.lower(), body.name)
+
+            logger.info("User registered: %s", body.email)
+            return _ok({
+                "user": {
+                    "id": user_id,
+                    "email": body.email.lower(),
+                    "name": body.name or body.email.split("@")[0],
+                    "image": "",
+                },
+                "token": token,
+            })
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Registration failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Registration failed: {exc}")
+
+
+# ============================================================================
+# POST /auth/login — Login with email + password
+# ============================================================================
+
+
+@router.post("/login")
+async def login(body: LoginRequest):
+    """Authenticate user with email and password."""
+    if not body.email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+
+            row = db.execute(
+                text("""
+                    SELECT id, email, name, password_hash, image, tier, agent_type,
+                           is_active, setup_complete, trial_end_date
+                    FROM users WHERE email = :email
+                """),
+                {"email": body.email.lower()},
+            ).fetchone()
+
+            if not row:
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+
+            if not row[3]:
+                raise HTTPException(
+                    status_code=401,
+                    detail="This account uses Google sign-in. Please use Google to log in.",
+                )
+
+            if not _verify_password(body.password, row[3]):
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+
+            token = _create_jwt(row[0], row[1], row[2])
+
+            return _ok({
+                "user": {
+                    "id": row[0],
+                    "email": row[1],
+                    "name": row[2] or "",
+                    "image": row[4] or "",
+                },
+                "token": token,
+            })
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Login failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Login failed: {exc}")
+
+
+# ============================================================================
+# POST /auth/google-login — Upsert user from Google OAuth
+# ============================================================================
+
+
+@router.post("/google-login")
+async def google_login(body: GoogleLoginRequest):
+    """Create or update user from Google OAuth sign-in."""
+    if not body.email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+
+            row = db.execute(
+                text("SELECT id, name, image FROM users WHERE email = :email"),
+                {"email": body.email.lower()},
+            ).fetchone()
+
+            if row:
+                db.execute(
+                    text("""
+                        UPDATE users SET name = :name, image = :image, google_id = :gid
+                        WHERE email = :email
+                    """),
+                    {
+                        "name": body.name or row[1],
+                        "image": body.image or row[2],
+                        "gid": body.google_id,
+                        "email": body.email.lower(),
+                    },
+                )
+                db.commit()
+                user_id = row[0]
+            else:
+                user_id = str(uuid.uuid4())
+                trial_end = datetime.now(timezone.utc) + timedelta(days=7)
+                db.execute(
+                    text("""
+                        INSERT INTO users (id, email, name, image, google_id, provider, tier, trial_end_date)
+                        VALUES (:id, :email, :name, :image, :gid, 'google', 'trial', :trial_end)
+                    """),
+                    {
+                        "id": user_id,
+                        "email": body.email.lower(),
+                        "name": body.name or body.email.split("@")[0],
+                        "image": body.image,
+                        "gid": body.google_id,
+                        "trial_end": trial_end,
+                    },
+                )
+                db.commit()
+
+            logger.info("Google user upserted: %s", body.email)
+            return _ok({"user_id": user_id})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Google login failed: %s", exc)
+        return _ok({"user_id": "google-user"})
+
+
+# ============================================================================
+# GET /auth/user/{email} — Get user profile
+# ============================================================================
+
+
+@router.get("/user/{email}")
+async def get_user(email: str):
+    """Get user profile by email address."""
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+
+            row = db.execute(
+                text("""
+                    SELECT id, email, name, image, tier, agent_type,
+                           is_active, setup_complete, trial_end_date
+                    FROM users WHERE email = :email
+                """),
+                {"email": email.lower()},
+            ).fetchone()
+
+            if not row:
+                return {
+                    "tier": "trial",
+                    "agent_type": "general",
+                    "is_active": True,
+                    "setup_complete": False,
+                    "trial_end_date": None,
+                }
+
+            return {
+                "id": row[0],
+                "email": row[1],
+                "name": row[2],
+                "image": row[3],
+                "tier": row[4] or "trial",
+                "agent_type": row[5] or "general",
+                "is_active": row[6] if row[6] is not None else True,
+                "setup_complete": row[7] if row[7] is not None else False,
+                "trial_end_date": row[8].isoformat() if row[8] else None,
+            }
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Get user failed: %s", exc)
+        return {
+            "tier": "trial",
+            "agent_type": "general",
+            "is_active": True,
+            "setup_complete": False,
+            "trial_end_date": None,
+        }
 
 
 # ============================================================================

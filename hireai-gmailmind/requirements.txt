@@ -13,3 +13,5 @@ python-dotenv
 cryptography
 pydantic
 httpx
+PyJWT
+bcrypt

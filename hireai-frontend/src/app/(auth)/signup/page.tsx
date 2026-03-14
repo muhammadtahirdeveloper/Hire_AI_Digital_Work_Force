@@ -7,6 +7,8 @@ import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,6 +39,21 @@ export default function SignupPage() {
 
     setLoading(true);
     try {
+      // Step 1: Register the user on the backend
+      const registerRes = await fetch(`${API_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, name: email.split("@")[0] }),
+      });
+
+      const registerData = await registerRes.json();
+
+      if (!registerRes.ok) {
+        setError(registerData.detail || "Failed to create account. Please try again.");
+        return;
+      }
+
+      // Step 2: Sign in via NextAuth credentials provider
       const res = await signIn("credentials", {
         email,
         password,
@@ -44,7 +61,7 @@ export default function SignupPage() {
       });
 
       if (res?.error) {
-        setError("Failed to create account. Please try again.");
+        setError("Account created but sign-in failed. Please try logging in.");
       } else {
         window.location.href = "/dashboard";
       }
