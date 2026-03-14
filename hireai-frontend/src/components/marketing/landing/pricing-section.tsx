@@ -106,7 +106,7 @@ export function PricingSection() {
                   ))}
                 </ul>
 
-                <Link href="/auth/signup" className="mt-8 block">
+                <Link href="/signup" className="mt-8 block">
                   <Button
                     variant={plan.featured ? "primary" : "outline"}
                     className="w-full"

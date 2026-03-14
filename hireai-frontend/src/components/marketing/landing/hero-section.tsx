@@ -68,7 +68,7 @@ export function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
           >
-            <Link href="/auth/signup">
+            <Link href="/signup">
               <Button size="lg" rightIcon={<ArrowRight className="h-4 w-4" />}>
                 Start 7-day free trial
               </Button>

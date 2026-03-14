@@ -22,7 +22,7 @@ export function CTASection() {
               required.
             </p>
             <div className="relative mt-8">
-              <Link href="/auth/signup">
+              <Link href="/signup">
                 <Button
                   size="lg"
                   className="bg-white text-navy hover:bg-gray-100"

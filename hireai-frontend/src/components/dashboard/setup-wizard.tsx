@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Globe,
   Users,
@@ -12,6 +11,7 @@ import {
   Check,
   Mail,
   Sparkles,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,8 @@ interface SetupData {
   workingHoursFrom: string;
   workingHoursTo: string;
   whatsappNumber: string;
+  useCustomDb: boolean;
+  customDbUrl: string;
 }
 
 const agents = [
@@ -65,10 +67,9 @@ const tones = [
   { value: "casual" as const, label: "Casual", description: "Relaxed and conversational" },
 ];
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 
 export function SetupWizard() {
-  const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<SetupData>({
@@ -81,6 +82,8 @@ export function SetupWizard() {
     workingHoursFrom: "09:00",
     workingHoursTo: "17:00",
     whatsappNumber: "",
+    useCustomDb: false,
+    customDbUrl: "",
   });
 
   const canProceed = (): boolean => {
@@ -93,6 +96,8 @@ export function SetupWizard() {
         return data.agentType !== null;
       case 4:
         return data.businessName.trim() !== "" && data.userName.trim() !== "";
+      case 5:
+        return true; // Database step is optional
       default:
         return true;
     }
@@ -118,12 +123,18 @@ export function SetupWizard() {
         working_hours_from: data.workingHoursFrom,
         working_hours_to: data.workingHoursTo,
         whatsapp_number: data.whatsappNumber || null,
+        custom_db_url: data.useCustomDb ? data.customDbUrl : null,
       });
     } catch {
       // Setup data saved locally; backend sync can retry later
     }
+    try {
+      await api.post("/api/user/complete-setup");
+    } catch {
+      // Non-critical — dashboard still works
+    }
     setLoading(false);
-    setStep(5);
+    setStep(6);
   };
 
   return (
@@ -378,8 +389,90 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* Step 5: Done */}
+          {/* Step 5: Database (optional) */}
           {step === 5 && (
+            <div>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-navy-light">
+                  <Database className="h-5 w-5 text-navy" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-text">Database</h2>
+                  <p className="text-sm text-text-3">
+                    Connect your own database or use ours
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {/* Toggle */}
+                <button
+                  onClick={() =>
+                    setData((prev) => ({
+                      ...prev,
+                      useCustomDb: !prev.useCustomDb,
+                      customDbUrl: !prev.useCustomDb ? prev.customDbUrl : "",
+                    }))
+                  }
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl border-2 p-4 text-left transition-all",
+                    data.useCustomDb
+                      ? "border-navy bg-navy/5"
+                      : "border-border hover:border-border-2"
+                  )}
+                >
+                  <div>
+                    <p className="font-medium text-text">
+                      Use custom database
+                    </p>
+                    <p className="mt-0.5 text-xs text-text-3">
+                      Your data stays in your database
+                    </p>
+                  </div>
+                  <div
+                    className={cn(
+                      "flex h-6 w-11 items-center rounded-full px-0.5 transition-colors",
+                      data.useCustomDb ? "bg-navy" : "bg-background-2"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+                        data.useCustomDb ? "translate-x-5" : "translate-x-0"
+                      )}
+                    />
+                  </div>
+                </button>
+
+                {data.useCustomDb && (
+                  <Input
+                    label="PostgreSQL connection URL"
+                    type="text"
+                    placeholder="postgresql://user:pass@host:5432/dbname"
+                    value={data.customDbUrl}
+                    onChange={(e) =>
+                      setData((prev) => ({
+                        ...prev,
+                        customDbUrl: e.target.value,
+                      }))
+                    }
+                    helperText="Your data is encrypted and never shared"
+                    prefixIcon={<Database className="h-4 w-4" />}
+                  />
+                )}
+
+                {!data.useCustomDb && (
+                  <div className="flex items-center gap-2 rounded-lg bg-navy/5 p-3 text-sm text-navy">
+                    <Check className="h-4 w-4 shrink-0" />
+                    Using HireAI&apos;s managed database (recommended)
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 6: Done */}
+          {step === 6 && (
             <div className="text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success-light">
                 <Check className="h-8 w-8 text-success" />
@@ -429,7 +522,9 @@ export function SetupWizard() {
               <Button
                 className="mt-8"
                 size="lg"
-                onClick={() => router.push("/dashboard")}
+                onClick={() => {
+                  window.location.href = "/dashboard";
+                }}
                 rightIcon={<ArrowRight className="h-4 w-4" />}
               >
                 Go to Dashboard
@@ -438,7 +533,7 @@ export function SetupWizard() {
           )}
 
           {/* Navigation buttons */}
-          {step < 5 && (
+          {step < 6 && (
             <div className="mt-8 flex items-center justify-between">
               {step > 1 ? (
                 <Button
@@ -452,7 +547,7 @@ export function SetupWizard() {
                 <div />
               )}
 
-              {step < 4 ? (
+              {step < 5 ? (
                 <Button
                   onClick={() => setStep((s) => s + 1)}
                   disabled={!canProceed()}
