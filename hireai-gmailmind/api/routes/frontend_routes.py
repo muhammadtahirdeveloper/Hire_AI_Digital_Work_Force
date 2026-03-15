@@ -247,6 +247,52 @@ async def update_agent_config(
         return _ok({"message": "Configuration updated"})
 
 
+@router.post("/agent/start")
+async def start_agent(user: dict = Depends(get_current_user)):
+    """Manually start the agent."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(
+                text("UPDATE user_agents SET is_paused = false WHERE user_id = :uid"),
+                {"uid": user_id},
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        # Dispatch Celery task
+        try:
+            from scheduler.tasks import run_gmailmind_for_user
+            run_gmailmind_for_user.delay(user_id)
+        except Exception:
+            pass
+
+    except Exception as exc:
+        logger.error("Start agent failed: %s", exc)
+    return _ok({"message": "Agent started"})
+
+
+@router.post("/agent/stop")
+async def stop_agent(user: dict = Depends(get_current_user)):
+    """Stop the agent."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(
+                text("UPDATE user_agents SET is_paused = true WHERE user_id = :uid"),
+                {"uid": user_id},
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return _ok({"message": "Agent stopped"})
+
+
 @router.post("/agent/pause")
 async def pause_agent(user: dict = Depends(get_current_user)):
     """Pause the user's agent."""
