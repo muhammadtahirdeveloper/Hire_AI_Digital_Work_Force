@@ -415,3 +415,64 @@ ALL_TOOLS = [
     update_crm,
     send_escalation_alert,
 ]
+
+
+# ===========================================================================
+# Standalone Gmail functions (no OpenAI decorators, take service explicitly)
+# ===========================================================================
+
+
+def standalone_read_emails(service: Any, max_results: int = 10, filter: str = "is:unread") -> list[dict]:
+    """Fetch emails — standalone version for EmailProcessor pipeline."""
+    result = gmail_tools.read_emails(service, max_results=max_results, filter=filter)
+    return [e.model_dump(mode="json") for e in result]
+
+
+def standalone_reply_to_email(service: Any, message_id: str, reply_text: str) -> bool:
+    """Reply to an email thread — standalone version."""
+    try:
+        gmail_tools.reply_to_email(service, thread_id=message_id, body=reply_text)
+        return True
+    except Exception as exc:
+        logger.error("standalone_reply_to_email failed: %s", exc)
+        return False
+
+
+def standalone_create_draft(service: Any, to: str, subject: str, body: str) -> str:
+    """Create a draft email — standalone version. Returns draft_id."""
+    try:
+        result = gmail_tools.create_draft(service, to=to, subject=subject, body=body)
+        return str(getattr(result, "draft_id", ""))
+    except Exception as exc:
+        logger.error("standalone_create_draft failed: %s", exc)
+        return ""
+
+
+def standalone_label_email(service: Any, message_id: str, label: str) -> bool:
+    """Label an email — standalone version."""
+    try:
+        gmail_tools.label_email(service, email_id=message_id, labels=[label])
+        return True
+    except Exception as exc:
+        logger.error("standalone_label_email failed: %s", exc)
+        return False
+
+
+def standalone_search_emails(service: Any, query: str, max_results: int = 10) -> list[dict]:
+    """Search emails — standalone version."""
+    result = gmail_tools.search_emails(service, query=query, max_results=max_results)
+    return [e.model_dump(mode="json") for e in result]
+
+
+def standalone_mark_as_read(service: Any, message_id: str) -> bool:
+    """Mark an email as read — standalone version."""
+    try:
+        service.users().messages().modify(
+            userId="me",
+            id=message_id,
+            body={"removeLabelIds": ["UNREAD"]},
+        ).execute()
+        return True
+    except Exception as exc:
+        logger.error("standalone_mark_as_read failed: %s", exc)
+        return False

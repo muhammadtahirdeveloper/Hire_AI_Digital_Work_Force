@@ -132,29 +132,25 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
                 "reason": routing.get("reason", "unknown"),
             }
 
-        # --- Run the agent loop (existing behaviour) ---
-        from agent.reasoning_loop import get_daily_summary, run_agent_loop
-        from config.business_config import load_business_config
+        # --- Run via EmailProcessor (AI Router pipeline) ---
+        from agent.email_processor import EmailProcessor
 
-        config = load_business_config(user_id=user_id)
+        processor = EmailProcessor(user_id)
 
-        # run_agent_loop is async — run it in an event loop.
         loop = asyncio.new_event_loop()
         try:
-            loop.run_until_complete(
-                run_agent_loop(user_config=config, user_id=user_id, single_run=True)
-            )
+            result = loop.run_until_complete(processor.process_inbox())
         finally:
             loop.close()
 
         duration = time.monotonic() - start
-        summary_items = get_daily_summary()
+        emails_processed = result.get("processed", 0)
 
         _set_agent_status(user_id, "idle")
         logger.info(
             "[run_gmailmind_for_user] DONE user=%s duration=%.1fs emails_processed=%d "
             "industry=%s tier=%s",
-            user_id, duration, len(summary_items),
+            user_id, duration, emails_processed,
             routing.get("industry", "general"), routing.get("tier", "tier2"),
         )
 
@@ -163,8 +159,9 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
             "user_id": user_id,
             "started_at": started_at,
             "duration_s": round(duration, 2),
-            "emails_processed": len(summary_items),
+            "emails_processed": emails_processed,
             "routing": routing,
+            "pipeline_result": result,
         }
 
     except Exception as exc:
