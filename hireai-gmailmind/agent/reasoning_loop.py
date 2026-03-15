@@ -18,18 +18,16 @@ Usage::
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from agents import Runner
-
-from agent.gmailmind import build_email_context_message, create_agent
 from agent.safety_guard import SafetyViolationError, safety_guard
 from agent.tool_wrappers import set_services
 from config.business_config import load_business_config
 from config.credentials import build_credentials, refresh_credentials
 from config.database import SessionLocal
-from config.settings import ENCRYPTION_KEY, OPENAI_API_KEY, POLL_INTERVAL_SECONDS
+from config.settings import ENCRYPTION_KEY, POLL_INTERVAL_SECONDS
 from memory.long_term import (
     create_follow_up,
     get_actions_for_sender,
@@ -217,47 +215,6 @@ def _get_sender_followups(sender_email: str) -> list[dict[str, Any]]:
 # ============================================================================
 
 
-def _update_memory_after_action(
-    sender_email: str,
-    email_data: dict[str, Any],
-    agent_output: str,
-) -> None:
-    """Update long-term and short-term memory after the agent acts.
-
-    Args:
-        sender_email: The sender's email address.
-        email_data: The original email data dict.
-        agent_output: The agent's textual output / summary.
-    """
-    # Update sender profile with interaction record
-    history_entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "email_id": email_data.get("id", ""),
-        "subject": email_data.get("subject", ""),
-        "action": "processed",
-        "note": agent_output[:500],  # truncate to keep history manageable
-    }
-
-    update_sender_memory(
-        email=sender_email,
-        data=SenderProfileUpdate(history_entry=history_entry),
-    )
-
-    # Persist action to audit log
-    persist_action(ActionLogCreate(
-        email_from=sender_email,
-        action_taken="agent_processed_email",
-        tool_used="gmailmind_agent",
-        outcome=agent_output[:1000],
-        metadata={
-            "email_id": email_data.get("id", ""),
-            "subject": email_data.get("subject", ""),
-        },
-    ))
-
-    logger.info("Memory updated for sender %s after processing.", sender_email)
-
-
 # ============================================================================
 # Daily summary tracking
 # ============================================================================
@@ -312,16 +269,20 @@ async def _process_single_email(
     agent: Any,
     email_data: dict[str, Any],
     user_config: dict[str, Any],
-) -> str:
-    """Run the GmailMind agent against a single email.
+    user_id: str = "default",
+    gmail_service: Any = None,
+) -> dict[str, Any]:
+    """Run the agent against a single email using the AI Router.
 
     Args:
-        agent: The GmailMind Agent instance.
+        agent: A BaseAgent subclass instance (with ai_router).
         email_data: The email dict to process.
         user_config: The business configuration.
+        user_id: The user ID (passed to AI Router for tier/provider lookup).
+        gmail_service: Gmail API service for executing actions.
 
     Returns:
-        The agent's textual output after processing.
+        Dict with action result and metadata.
     """
     # Extract sender email
     sender = email_data.get("sender", {})
@@ -338,116 +299,99 @@ async def _process_single_email(
         "snippet": email_data.get("snippet", ""),
     })
 
-    # Gather memory context
-    sender_history = _get_sender_context(sender_email)
-    sender_followups = _get_sender_followups(sender_email)
-    business_goals = user_config.get("business_goals", [])
-    today_actions = session_memory.action_count()
-
-    # Build the context message
-    context_message = build_email_context_message(
-        email_data=email_data,
-        sender_history=sender_history,
-        business_goals=business_goals,
-        today_actions_count=today_actions,
-        pending_followups=sender_followups if sender_followups else None,
-    )
-
-    # Run the agent
     logger.info(
-        "Running GmailMind agent for email %s from %s: %s",
+        "Processing email %s from %s: %s",
         email_data.get("id", "?"),
         sender_email,
         email_data.get("subject", "(no subject)"),
     )
 
     try:
-        result = await Runner.run(agent, input=context_message)
-        agent_output = result.final_output if result.final_output else ""
+        # Use AI Router through agent.process_email
+        decision = await agent.process_email(user_id, email_data)
+
         logger.info(
-            "Agent completed for email %s. Output length: %d chars.",
+            "AI decision for email %s: action=%s provider=%s model=%s",
             email_data.get("id", "?"),
-            len(agent_output),
+            decision.get("action", "?"),
+            decision.get("provider", "?"),
+            decision.get("model", "?"),
         )
+
+        # Execute the action
+        action_result = await _execute_action(
+            gmail_service, email_data, decision, user_config,
+        )
+
+        # Log to database
+        _log_action(user_id, email_data, decision, action_result)
+
+        # Update sender memory
+        _update_sender_memory(sender_email, email_data, decision)
+
+        # Append to daily summary
+        agent_output = decision.get("ai_response", "")
+        _append_to_daily_summary(email_data, agent_output)
+
+        return {
+            "email_from": sender_email,
+            "action": decision.get("action", "DRAFT_REPLY"),
+            "provider": decision.get("provider", "unknown"),
+            "status": action_result.get("status", "processed"),
+        }
+
     except SafetyViolationError as exc:
-        agent_output = f"[SAFETY BLOCK] {exc}"
         logger.warning("Safety violation for email %s: %s", email_data.get("id", "?"), exc)
         session_memory.add_escalation(
             email_data.get("id", ""),
             reason=str(exc),
             sender=sender_email,
         )
+        return {"email_from": sender_email, "action": "BLOCKED", "error": str(exc)}
+
     except Exception as exc:
-        agent_output = f"[ERROR] Failed to process: {exc}"
-        logger.exception("Agent error for email %s.", email_data.get("id", "?"))
-
-    # Post-action: update memory and summary
-    _update_memory_after_action(sender_email, email_data, agent_output)
-    _append_to_daily_summary(email_data, agent_output)
-
-    return agent_output
+        logger.exception("Error processing email %s.", email_data.get("id", "?"))
+        return {"email_from": sender_email, "error": str(exc)}
 
 
 async def _process_due_followup(
     agent: Any,
     followup: dict[str, Any],
     user_config: dict[str, Any],
-) -> str:
-    """Handle a follow-up that has come due.
-
-    Creates a synthetic context message for the agent so it can decide
-    what to do (e.g. send a follow-up email, create a draft, escalate).
+    user_id: str = "default",
+) -> dict[str, Any]:
+    """Handle a follow-up that has come due using the AI Router.
 
     Args:
-        agent: The GmailMind Agent instance.
+        agent: A BaseAgent subclass instance.
         followup: The follow-up dict (email_id, sender, note, due_time).
         user_config: The business configuration.
+        user_id: The user ID.
 
     Returns:
-        The agent's output.
+        Dict with action result.
     """
     sender_email = followup.get("sender", "")
     email_id = followup.get("email_id", "")
     note = followup.get("note", "")
 
-    sender_history = _get_sender_context(sender_email)
-    business_goals = user_config.get("business_goals", [])
-    today_actions = session_memory.action_count()
-
-    goals_text = "\n".join(
-        f"  {i}. {g}" for i, g in enumerate(business_goals, 1)
-    )
-
-    context = f"""
-═══════════════════════════════════════════════
-FOLLOW-UP DUE — ACTION REQUIRED
-═══════════════════════════════════════════════
-
-A scheduled follow-up is now due:
-
-  Original Email ID: {email_id}
-  Sender: {sender_email}
-  Follow-up Note: {note}
-  Due Time: {followup.get('due_time', 'now')}
-
-**Sender Memory:**
-{json.dumps(sender_history, indent=2, default=str) if sender_history else '  (no history)'}
-
-**Session Context:**
-  Actions taken today: {today_actions}
-  Active business goals:
-{goals_text}
-
-═══════════════════════════════════════════════
-INSTRUCTIONS: Decide what follow-up action to take.
-Options: send a follow-up email, create a draft, search for the original
-thread and reply, or escalate if the matter seems unresolved.
-═══════════════════════════════════════════════
-"""
+    # Build a synthetic email dict for the agent
+    followup_email = {
+        "id": email_id,
+        "subject": f"Follow-up due: {note[:80]}",
+        "body": (
+            f"A scheduled follow-up is now due.\n"
+            f"Original email ID: {email_id}\n"
+            f"Sender: {sender_email}\n"
+            f"Note: {note}\n"
+            f"Due: {followup.get('due_time', 'now')}"
+        ),
+        "sender": {"email": sender_email, "name": sender_email},
+    }
 
     try:
-        result = await Runner.run(agent, input=context)
-        agent_output = result.final_output if result.final_output else ""
+        decision = await agent.process_email(user_id, followup_email)
+        agent_output = decision.get("ai_response", "")
     except Exception as exc:
         agent_output = f"[ERROR] Follow-up processing failed: {exc}"
         logger.exception("Error processing follow-up for %s.", email_id)
@@ -463,7 +407,160 @@ thread and reply, or escalate if the matter seems unresolved.
             data=FollowUpUpdate(status="completed"),
         )
 
-    return agent_output
+    return {"email_id": email_id, "sender": sender_email, "output": agent_output}
+
+
+# ============================================================================
+# Action execution
+# ============================================================================
+
+
+def _extract_reply(ai_response: str) -> str:
+    """Extract reply text from AI response.
+
+    Looks for 'REPLY: ...' in the AI output. Falls back to the full
+    response if no REPLY line is found.
+
+    Args:
+        ai_response: Raw AI response text.
+
+    Returns:
+        The reply text string.
+    """
+    match = re.search(r"REPLY:\s*(.+?)(?:\nREASON:|\Z)", ai_response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return ai_response.strip()
+
+
+async def _execute_action(
+    gmail_service: Any,
+    email_data: dict[str, Any],
+    decision: dict[str, Any],
+    user_config: dict[str, Any],
+) -> dict[str, str]:
+    """Execute the AI's decision (reply, draft, label, etc.).
+
+    Args:
+        gmail_service: Authenticated Gmail API service.
+        email_data: The original email dict.
+        decision: The AI decision dict with 'action' and 'ai_response'.
+        user_config: Business configuration.
+
+    Returns:
+        Dict with status and action taken.
+    """
+    action = decision.get("action", "DRAFT_REPLY")
+    ai_response = decision.get("ai_response", "")
+
+    if action == "AUTO_REPLY":
+        reply_text = _extract_reply(ai_response)
+        auto_reply_enabled = (
+            user_config.get("autonomy", {}).get("auto_reply_known_contacts", False)
+        )
+        if reply_text and auto_reply_enabled and gmail_service:
+            try:
+                from tools.gmail_tools import send_reply
+                send_reply(gmail_service, email_data, reply_text)
+                return {"status": "sent", "action": "auto_replied"}
+            except Exception as exc:
+                logger.error("Failed to send auto-reply: %s", exc)
+        # Fall back to draft if auto-reply not enabled or failed
+        if gmail_service:
+            try:
+                from tools.gmail_tools import create_draft
+                create_draft(gmail_service, email_data, reply_text)
+            except Exception as exc:
+                logger.error("Failed to create draft: %s", exc)
+        return {"status": "drafted", "action": "draft_created"}
+
+    elif action == "DRAFT_REPLY":
+        reply_text = _extract_reply(ai_response)
+        if gmail_service:
+            try:
+                from tools.gmail_tools import create_draft
+                create_draft(gmail_service, email_data, reply_text)
+            except Exception as exc:
+                logger.error("Failed to create draft: %s", exc)
+        return {"status": "drafted", "action": "draft_created"}
+
+    elif action == "ESCALATE":
+        return {"status": "escalated", "action": "escalated"}
+
+    elif action == "LABEL_ARCHIVE":
+        return {"status": "archived", "action": "labeled_archived"}
+
+    elif action == "SCHEDULE_FOLLOWUP":
+        return {"status": "followup", "action": "followup_scheduled"}
+
+    return {"status": "skipped", "action": "no_action"}
+
+
+def _log_action(
+    user_id: str,
+    email_data: dict[str, Any],
+    decision: dict[str, Any],
+    action_result: dict[str, str],
+) -> None:
+    """Log the processed action to the audit log.
+
+    Args:
+        user_id: The user ID.
+        email_data: The email dict.
+        decision: The AI decision.
+        action_result: The execution result.
+    """
+    sender = email_data.get("sender", {})
+    sender_email = (
+        sender.get("email", "unknown")
+        if isinstance(sender, dict)
+        else str(sender)
+    )
+
+    try:
+        persist_action(ActionLogCreate(
+            email_from=sender_email,
+            action_taken=decision.get("action", "unknown"),
+            tool_used=f"{decision.get('provider', 'unknown')}/{decision.get('model', 'unknown')}",
+            outcome=action_result.get("status", "unknown"),
+            metadata={
+                "email_id": email_data.get("id", ""),
+                "subject": email_data.get("subject", ""),
+                "category": decision.get("category", ""),
+                "user_id": user_id,
+            },
+        ))
+    except Exception as exc:
+        logger.error("Failed to log action: %s", exc)
+
+
+def _update_sender_memory(
+    sender_email: str,
+    email_data: dict[str, Any],
+    decision: dict[str, Any],
+) -> None:
+    """Update long-term memory for the sender after processing.
+
+    Args:
+        sender_email: The sender's email address.
+        email_data: The original email data.
+        decision: The AI decision dict.
+    """
+    history_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "email_id": email_data.get("id", ""),
+        "subject": email_data.get("subject", ""),
+        "action": decision.get("action", "unknown"),
+        "provider": decision.get("provider", "unknown"),
+    }
+
+    try:
+        update_sender_memory(
+            email=sender_email,
+            data=SenderProfileUpdate(history_entry=history_entry),
+        )
+    except Exception as exc:
+        logger.error("Failed to update sender memory for %s: %s", sender_email, exc)
 
 
 # ============================================================================
@@ -475,43 +572,55 @@ async def run_agent_loop(
     user_config: dict[str, Any] | None = None,
     user_id: str | None = None,
     single_run: bool = False,
-) -> None:
-    """Run the GmailMind autonomous reasoning loop.
+) -> dict[str, Any]:
+    """Run the GmailMind autonomous reasoning loop using AI Router.
 
     This is the main entry point for the agent. It continuously:
       1. Fetches new emails and due follow-ups.
-      2. Processes each with the GmailMind agent.
-      3. Updates memory and daily summary.
-      4. Sleeps until the next interval.
+      2. Loads the correct agent via the Orchestrator.
+      3. Processes each email through agent.process_email() (AI Router).
+      4. Executes actions, logs results, updates memory.
+      5. Sleeps until the next interval.
 
     Args:
         user_config: Pre-loaded business config, or None to load automatically.
         user_id: User ID for config loading (used if user_config is None).
         single_run: If True, run once and return (for testing / Celery tasks).
+
+    Returns:
+        Dict with processed count and results (in single_run mode).
     """
+    _uid = user_id or "default"
+
     # Load config
     if user_config is None:
-        user_config = load_business_config(user_id=user_id)
+        user_config = load_business_config(user_id=_uid)
 
     logger.info(
-        "Starting GmailMind reasoning loop for %s (interval=%ds, single_run=%s).",
+        "Starting reasoning loop for %s (interval=%ds, single_run=%s).",
         user_config.get("business_name", "unknown"),
         POLL_INTERVAL_SECONDS,
         single_run,
     )
 
-    # Build services (read OAuth token from database)
-    _uid = user_id or "default"
+    # Build Gmail service
+    gmail_service = None
     try:
         gmail_service = _build_gmail_service(user_config, user_id=_uid)
         calendar_service = _build_calendar_service(user_config, user_id=_uid)
         set_services(gmail_service, calendar_service)
     except RuntimeError as exc:
         logger.error("Cannot start agent loop: %s", exc)
+        if single_run:
+            return {"error": "Gmail not connected", "details": str(exc)}
         raise
 
-    # Create agent
-    agent = create_agent(user_config)
+    # Load the correct agent via Orchestrator
+    from orchestrator.orchestrator import GmailMindOrchestrator
+    orchestrator = GmailMindOrchestrator()
+    agent = orchestrator.get_agent_for_user(_uid)
+
+    all_results = []
 
     while True:
         loop_start = datetime.now(timezone.utc)
@@ -527,9 +636,12 @@ async def run_agent_loop(
                 len(followups),
             )
 
-            # --- 2. THINK + ACT (per email) ---
+            if not emails and not followups and single_run:
+                return {"processed": 0, "message": "No new emails", "results": []}
+
+            # --- 2. THINK + ACT (per email via AI Router) ---
+            results = []
             for email_data in emails:
-                # Check daily limit before processing
                 if safety_guard.is_daily_limit_exceeded():
                     logger.warning("Daily limit exceeded — stopping processing.")
                     session_memory.add_escalation(
@@ -538,7 +650,11 @@ async def run_agent_loop(
                     )
                     break
 
-                await _process_single_email(agent, email_data, user_config)
+                result = await _process_single_email(
+                    agent, email_data, user_config,
+                    user_id=_uid, gmail_service=gmail_service,
+                )
+                results.append(result)
 
             # --- 3. Handle due follow-ups ---
             for followup in followups:
@@ -546,7 +662,7 @@ async def run_agent_loop(
                     logger.warning("Daily limit exceeded — stopping follow-up processing.")
                     break
 
-                await _process_due_followup(agent, followup, user_config)
+                await _process_due_followup(agent, followup, user_config, user_id=_uid)
 
             # --- 4. REPORT ---
             summary = session_memory.summary()
@@ -558,13 +674,15 @@ async def run_agent_loop(
                 summary["pending_escalations"],
             )
 
+            all_results.extend(results)
+
         except Exception as exc:
             logger.exception("Error in agent loop iteration: %s", exc)
 
         # --- 5. SLEEP ---
         if single_run:
             logger.info("Single-run mode — exiting loop.")
-            break
+            return {"processed": len(all_results), "results": all_results}
 
         logger.info("Sleeping for %d seconds...", POLL_INTERVAL_SECONDS)
         await asyncio.sleep(POLL_INTERVAL_SECONDS)

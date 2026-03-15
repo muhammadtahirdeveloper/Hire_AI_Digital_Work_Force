@@ -119,6 +119,37 @@ class GmailMindOrchestrator:
             "features": features,
         }
 
+    def get_agent_for_user(self, user_id: str):
+        """Get an instantiated agent for a user based on their industry.
+
+        Args:
+            user_id: The user ID.
+
+        Returns:
+            An instantiated agent (GeneralAgent, HRAgent, etc.).
+        """
+        industry = self.router.get_user_industry(user_id)
+        agent_class = self.registry.get_agent(industry)
+
+        if agent_class is None:
+            logger.info(
+                "Orchestrator: No agent for industry '%s', falling back to 'general'.",
+                industry,
+            )
+            agent_class = self.registry.get_agent("general")
+
+        if agent_class is None:
+            # Last resort — import GeneralAgent directly
+            from agents.general.general_agent import GeneralAgent
+            agent_class = GeneralAgent
+
+        agent = agent_class()
+        logger.info(
+            "Orchestrator: Instantiated %s for user=%s (industry=%s)",
+            agent.agent_name, user_id, industry,
+        )
+        return agent
+
     def get_platform_stats(self) -> dict:
         """Get platform-wide statistics.
 
