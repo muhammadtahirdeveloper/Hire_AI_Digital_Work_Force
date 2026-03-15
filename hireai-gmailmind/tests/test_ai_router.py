@@ -377,6 +377,90 @@ class TestFallback:
 
 
 # ============================================================================
+# Groq Retry Tests
+# ============================================================================
+
+
+class TestGroqRetry:
+    """Test _call_groq_with_retry — exponential backoff on rate limits."""
+
+    def setup_method(self):
+        self.router = AIRouter()
+
+    def test_succeeds_on_first_attempt(self):
+        mock_result = {"content": "OK", "provider": "groq", "model": "llama-3.1-8b-instant"}
+
+        with patch.object(self.router, "_call_groq", new_callable=AsyncMock, return_value=mock_result):
+            result = _run(self.router._call_groq_with_retry(
+                "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
+            ))
+
+        assert result["provider"] == "groq"
+
+    def test_retries_on_rate_limit_then_succeeds(self):
+        mock_result = {"content": "OK", "provider": "groq", "model": "llama-3.1-8b-instant"}
+
+        with patch.object(
+            self.router, "_call_groq", new_callable=AsyncMock,
+            side_effect=[Exception("rate_limit_exceeded"), mock_result],
+        ), patch("config.ai_router.time.sleep") as mock_sleep:
+            result = _run(self.router._call_groq_with_retry(
+                "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
+            ))
+
+        assert result["provider"] == "groq"
+        mock_sleep.assert_called_once_with(1)  # 2^0 = 1
+
+    def test_retries_twice_on_rate_limit_then_succeeds(self):
+        mock_result = {"content": "OK", "provider": "groq", "model": "llama-3.1-8b-instant"}
+
+        with patch.object(
+            self.router, "_call_groq", new_callable=AsyncMock,
+            side_effect=[
+                Exception("rate_limit_exceeded"),
+                Exception("rate_limit_exceeded"),
+                mock_result,
+            ],
+        ), patch("config.ai_router.time.sleep") as mock_sleep:
+            result = _run(self.router._call_groq_with_retry(
+                "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
+            ))
+
+        assert result["provider"] == "groq"
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_any_call(1)   # 2^0
+        mock_sleep.assert_any_call(2)   # 2^1
+
+    def test_gives_up_after_three_rate_limits(self):
+        with patch.object(
+            self.router, "_call_groq", new_callable=AsyncMock,
+            side_effect=Exception("rate_limit_exceeded"),
+        ), patch("config.ai_router.time.sleep"):
+            try:
+                _run(self.router._call_groq_with_retry(
+                    "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
+                ))
+                assert False, "Should have raised"
+            except Exception as exc:
+                assert "rate_limit" in str(exc).lower()
+
+    def test_non_rate_limit_error_not_retried(self):
+        with patch.object(
+            self.router, "_call_groq", new_callable=AsyncMock,
+            side_effect=Exception("authentication_error: invalid key"),
+        ), patch("config.ai_router.time.sleep") as mock_sleep:
+            try:
+                _run(self.router._call_groq_with_retry(
+                    "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
+                ))
+                assert False, "Should have raised"
+            except Exception as exc:
+                assert "authentication_error" in str(exc)
+
+        mock_sleep.assert_not_called()
+
+
+# ============================================================================
 # Health Check Tests
 # ============================================================================
 

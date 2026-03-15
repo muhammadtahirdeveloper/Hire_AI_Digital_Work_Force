@@ -18,6 +18,7 @@ Usage::
 
 import logging
 import os
+import time
 from typing import Optional
 
 from sqlalchemy import text
@@ -36,7 +37,7 @@ class AIRouter:
 
     PROVIDER_MAP = {
         "gemini": "_call_gemini",
-        "groq": "_call_groq",
+        "groq": "_call_groq_with_retry",
         "openai": "_call_openai",
         "claude": "_call_claude",
     }
@@ -279,6 +280,26 @@ class AIRouter:
             "provider": "groq",
             "model": model,
         }
+
+    async def _call_groq_with_retry(
+        self, system_prompt: str, user_message: str,
+        api_key: str, model: str,
+        max_tokens: int, temperature: float,
+    ) -> dict:
+        """Call Groq with exponential backoff on rate-limit errors (max 3 attempts)."""
+        for attempt in range(3):
+            try:
+                return await self._call_groq(
+                    system_prompt, user_message, api_key, model,
+                    max_tokens, temperature,
+                )
+            except Exception as exc:
+                if "rate_limit" in str(exc).lower() and attempt < 2:
+                    wait = 2 ** attempt
+                    logger.warning("Groq rate limited, retry in %ds (attempt %d/3)", wait, attempt + 1)
+                    time.sleep(wait)
+                    continue
+                raise
 
     async def _call_openai(
         self, system_prompt: str, user_message: str,
