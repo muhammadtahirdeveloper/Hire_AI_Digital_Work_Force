@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import {
   Globe,
   Users,
@@ -113,8 +114,10 @@ const aiModels = [
 const TOTAL_STEPS = 7;
 
 export function SetupWizard() {
+  const { data: session } = useSession();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [setupError, setSetupError] = useState("");
   const [showFreeWarning, setShowFreeWarning] = useState(false);
   const [data, setData] = useState<SetupData>({
     gmailAddress: "",
@@ -175,8 +178,18 @@ export function SetupWizard() {
 
   const handleFinish = async () => {
     setLoading(true);
+    setSetupError("");
+
+    const userEmail = session?.user?.email;
+    if (!userEmail) {
+      setSetupError("Session expired. Please refresh and try again.");
+      setLoading(false);
+      return;
+    }
+
     try {
       await api.post("/auth/setup", {
+        email: userEmail,
         gmail_address: data.gmailAddress,
         agent_type: data.agentType,
         ai_model: data.aiModel,
@@ -189,16 +202,17 @@ export function SetupWizard() {
         whatsapp_number: data.whatsappNumber || null,
         custom_db_url: data.useCustomDb ? data.customDbUrl : null,
       });
+      setStep(7);
     } catch {
-      // Setup data saved locally; backend sync can retry later
-    }
-    try {
-      await api.post("/api/user/complete-setup");
-    } catch {
-      // Non-critical — dashboard still works
+      // Fallback: try the email-only complete-setup endpoint
+      try {
+        await api.post("/auth/complete-setup", { email: userEmail });
+        setStep(7);
+      } catch {
+        setSetupError("Setup failed. Please try again.");
+      }
     }
     setLoading(false);
-    setStep(7);
   };
 
   return (
@@ -708,12 +722,19 @@ export function SetupWizard() {
                 className="mt-8"
                 size="lg"
                 onClick={() => {
-                  window.location.reload();
+                  window.location.href = "/dashboard";
                 }}
                 rightIcon={<ArrowRight className="h-4 w-4" />}
               >
                 Go to Dashboard
               </Button>
+            </div>
+          )}
+
+          {/* Error message */}
+          {setupError && step < 7 && (
+            <div className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+              {setupError}
             </div>
           )}
 

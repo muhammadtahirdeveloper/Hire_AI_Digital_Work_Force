@@ -10,6 +10,7 @@ Routes:
 """
 
 import hashlib
+import json
 import logging
 import os
 import base64
@@ -22,6 +23,7 @@ from email.mime.text import MIMEText
 
 import bcrypt
 import jwt
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from google_auth_oauthlib.flow import Flow
@@ -135,6 +137,21 @@ class SendVerificationRequest(BaseModel):
 
 class CompleteSetupRequest(BaseModel):
     email: str
+
+
+class SetupRequest(BaseModel):
+    email: str
+    gmail_address: str = ""
+    agent_type: str = "general"
+    ai_model: str = "gemini"
+    ai_api_key: Optional[str] = None
+    business_name: str = ""
+    user_name: str = ""
+    reply_tone: str = "friendly"
+    working_hours_from: str = "09:00"
+    working_hours_to: str = "17:00"
+    whatsapp_number: Optional[str] = None
+    custom_db_url: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +800,140 @@ async def reset_password(body: ResetPasswordRequest):
         raise
     except Exception as exc:
         logger.error("Reset password failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# POST /auth/setup — Save setup data + mark complete + create agent record
+# ============================================================================
+
+
+def _ensure_user_agents_table(db):
+    """Create user_agents table if it doesn't exist."""
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS user_agents (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT UNIQUE NOT NULL,
+            agent_type TEXT DEFAULT 'general',
+            tier TEXT DEFAULT 'trial',
+            model TEXT DEFAULT 'gemini',
+            ai_provider TEXT DEFAULT 'gemini',
+            ai_api_key TEXT,
+            gmail_email TEXT,
+            gmail_token_valid BOOLEAN DEFAULT false,
+            is_paused BOOLEAN DEFAULT false,
+            test_mode BOOLEAN DEFAULT false,
+            config JSONB DEFAULT '{}',
+            last_processed_at TIMESTAMP,
+            last_error TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """))
+    # Add columns for existing tables
+    for col in [
+        "ai_provider TEXT DEFAULT 'gemini'",
+        "ai_api_key TEXT",
+    ]:
+        try:
+            db.execute(text(f"ALTER TABLE user_agents ADD COLUMN IF NOT EXISTS {col}"))
+        except Exception:
+            pass
+    db.commit()
+
+
+@router.post("/setup")
+async def save_setup(body: SetupRequest):
+    """Save all setup data, create agent record, and mark setup as complete."""
+    if not body.email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            _ensure_user_agents_table(db)
+
+            # 1. Update user: mark setup complete + save agent_type and name
+            result = db.execute(
+                text("""
+                    UPDATE users
+                    SET setup_complete = true,
+                        agent_type = :agent_type,
+                        name = COALESCE(NULLIF(:user_name, ''), name)
+                    WHERE email = :email
+                """),
+                {
+                    "email": body.email.lower(),
+                    "agent_type": body.agent_type,
+                    "user_name": body.user_name,
+                },
+            )
+            db.commit()
+
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            # 2. Get user ID for the agents table
+            user_row = db.execute(
+                text("SELECT id FROM users WHERE email = :email"),
+                {"email": body.email.lower()},
+            ).fetchone()
+
+            if not user_row:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            user_id = user_row[0]
+            config_json = json.dumps({
+                "business_name": body.business_name,
+                "user_name": body.user_name,
+                "reply_tone": body.reply_tone,
+                "working_hours": {
+                    "from": body.working_hours_from,
+                    "to": body.working_hours_to,
+                },
+                "whatsapp_number": body.whatsapp_number,
+                "custom_db_url": body.custom_db_url,
+            })
+
+            # 3. Upsert user_agents record
+            db.execute(
+                text("""
+                    INSERT INTO user_agents
+                        (user_id, agent_type, ai_provider, ai_api_key,
+                         gmail_email, model, config, is_paused)
+                    VALUES
+                        (:uid, :agent_type, :ai_provider, :ai_api_key,
+                         :gmail, :model, :config::jsonb, false)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        agent_type = EXCLUDED.agent_type,
+                        ai_provider = EXCLUDED.ai_provider,
+                        ai_api_key = COALESCE(EXCLUDED.ai_api_key, user_agents.ai_api_key),
+                        gmail_email = EXCLUDED.gmail_email,
+                        model = EXCLUDED.model,
+                        config = EXCLUDED.config,
+                        is_paused = false,
+                        updated_at = NOW()
+                """),
+                {
+                    "uid": user_id,
+                    "agent_type": body.agent_type,
+                    "ai_provider": body.ai_model,
+                    "ai_api_key": body.ai_api_key,
+                    "gmail": body.gmail_address,
+                    "model": body.ai_model,
+                    "config": config_json,
+                },
+            )
+            db.commit()
+
+            logger.info("Setup complete for user: %s", body.email)
+            return _ok({"message": "Setup complete", "setup_complete": True})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Setup failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

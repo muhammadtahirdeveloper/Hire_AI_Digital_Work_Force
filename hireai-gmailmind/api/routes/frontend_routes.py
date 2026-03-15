@@ -297,6 +297,46 @@ async def force_sync(user: dict = Depends(get_current_user)):
     return _ok({"message": "Sync started"})
 
 
+class AgentConfigureRequest(BaseModel):
+    ai_provider: str = "gemini"
+    api_key: Optional[str] = None
+
+
+@router.post("/agent/configure")
+async def configure_agent(
+    body: AgentConfigureRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Configure agent AI provider and API key."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(
+                text("""
+                    UPDATE user_agents
+                    SET ai_provider = :provider,
+                        ai_api_key = COALESCE(:key, ai_api_key),
+                        model = :provider,
+                        is_paused = false,
+                        updated_at = NOW()
+                    WHERE user_id = :uid
+                """),
+                {
+                    "provider": body.ai_provider,
+                    "key": body.api_key,
+                    "uid": user_id,
+                },
+            )
+            db.commit()
+            return _ok({"message": "Agent configured", "ai_provider": body.ai_provider})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Configure agent failed: %s", exc)
+        return _ok({"message": "Agent configured"})
+
+
 @router.post("/agent/test-mode")
 async def toggle_test_mode(user: dict = Depends(get_current_user)):
     """Toggle test mode."""
@@ -510,7 +550,24 @@ async def get_setup_status(user: dict = Depends(get_current_user)):
 @router.post("/user/complete-setup")
 async def complete_setup(user: dict = Depends(get_current_user)):
     """Mark setup as complete."""
-    return _ok({"message": "Setup completed"})
+    user_id = user.get("sub", "")
+    email = user.get("email", "")
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(
+                text(
+                    "UPDATE users SET setup_complete = true "
+                    "WHERE id = :uid OR email = :email"
+                ),
+                {"uid": user_id, "email": email.lower() if email else ""},
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Complete setup failed: %s", exc)
+    return _ok({"message": "Setup completed", "setup_complete": True})
 
 
 # ============================================================================
