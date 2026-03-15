@@ -4,7 +4,8 @@ import useSWR from "swr";
 import { api } from "@/lib/api";
 import type { DashboardStats, AgentStatus } from "@/types";
 
-const fetcher = (url: string) => api.get(url).then((res) => res.data);
+const fetcher = (url: string) =>
+  api.get(url).then((res) => res.data?.data ?? res.data);
 
 const REFRESH_INTERVAL = 30_000; // 30 seconds
 
