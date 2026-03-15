@@ -26,6 +26,7 @@ class HRAgent(BaseAgent):
     supported_tiers = ["tier2", "tier3"]
 
     def __init__(self) -> None:
+        super().__init__()
         self.cv_processor = CVProcessor()
         self.candidate_tracker = CandidateTracker()
         self.interview_scheduler = InterviewScheduler()

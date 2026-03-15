@@ -3,13 +3,14 @@
 All industry-specific agents (GeneralAgent, HRAgent, etc.) must
 inherit from BaseAgent and implement the abstract methods.
 Concrete methods provide shared functionality like logging,
-sender context lookup, and email formatting.
+sender context lookup, email formatting, and AI Router integration.
 """
 
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from config.ai_router import AIRouter
 from memory.long_term import get_sender_memory, log_action
 from memory.schemas import ActionLogCreate
 
@@ -23,6 +24,9 @@ class BaseAgent(ABC):
     agent_name: str = "BaseAgent"
     industry: str = "general"
     supported_tiers: list[str] = ["tier1", "tier2", "tier3"]
+
+    def __init__(self):
+        self.ai_router = AIRouter()
 
     # ------------------------------------------------------------------
     # Abstract methods — subclasses MUST implement
@@ -159,3 +163,92 @@ class BaseAgent(ABC):
             preview += "..."
 
         return f"From: {sender_str} | Subject: {subject} | Preview: {preview}"
+
+    # ------------------------------------------------------------------
+    # AI-powered email processing (uses AI Router)
+    # ------------------------------------------------------------------
+
+    async def process_email(self, user_id: str, email: dict) -> dict:
+        """Process a single email using the AI Router.
+
+        1. Classify the email
+        2. Build system prompt based on tier
+        3. Call AI Router
+        4. Parse and return decision
+
+        Args:
+            user_id: The user ID.
+            email: Email dict with 'subject', 'body', 'sender', etc.
+
+        Returns:
+            Dict with category, ai_response, provider, model, action.
+        """
+        tier = self._get_user_tier(user_id)
+        category = self.classify_email(email)
+        system_prompt = self.get_system_prompt(tier)
+
+        user_message = self.format_email_summary(email)
+        user_message += f"\n\nEmail Category: {category}"
+        user_message += "\n\nDecide: AUTO_REPLY, DRAFT_REPLY, LABEL_ARCHIVE, SCHEDULE_FOLLOWUP, or ESCALATE"
+        user_message += "\nProvide your response in this format:"
+        user_message += "\nACTION: <action>"
+        user_message += "\nREPLY: <reply text if applicable>"
+        user_message += "\nREASON: <brief reason>"
+
+        result = await self.ai_router.generate(
+            user_id=user_id,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=512,
+            temperature=0.3,
+        )
+
+        return {
+            "category": category,
+            "ai_response": result["content"],
+            "provider": result["provider"],
+            "model": result["model"],
+            "action": self._parse_action(result["content"]),
+        }
+
+    def _parse_action(self, ai_response: str) -> str:
+        """Parse ACTION from AI response text.
+
+        Args:
+            ai_response: Raw text from AI provider.
+
+        Returns:
+            One of the valid action strings, defaults to DRAFT_REPLY.
+        """
+        for line in ai_response.split("\n"):
+            if line.strip().upper().startswith("ACTION:"):
+                action = line.split(":", 1)[1].strip().upper()
+                valid = {"AUTO_REPLY", "DRAFT_REPLY", "LABEL_ARCHIVE",
+                         "SCHEDULE_FOLLOWUP", "ESCALATE"}
+                return action if action in valid else "DRAFT_REPLY"
+        return "DRAFT_REPLY"
+
+    def _get_user_tier(self, user_id: str) -> str:
+        """Get user tier from database.
+
+        Args:
+            user_id: The user ID.
+
+        Returns:
+            Tier string (trial, tier1, tier2, tier3).
+        """
+        try:
+            from config.database import SessionLocal
+            from sqlalchemy import text
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text("SELECT tier FROM user_agents WHERE user_id = :uid"),
+                    {"uid": user_id},
+                ).fetchone()
+                return row[0] if row else "trial"
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("%s: Could not load user tier: %s", self.agent_name, exc)
+            return "trial"
