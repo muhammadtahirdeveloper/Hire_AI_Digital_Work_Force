@@ -343,6 +343,27 @@ async def toggle_test_mode(user: dict = Depends(get_current_user)):
     return _ok({"message": "Test mode toggled"})
 
 
+@router.get("/agent/providers")
+async def get_available_providers(user: dict = Depends(get_current_user)):
+    """List available AI providers for the user's tier."""
+    user_id = user.get("sub", "")
+    try:
+        from config.ai_router import AIRouter
+        ai_router = AIRouter()
+        _, _, tier = ai_router._get_user_config(user_id)
+    except Exception:
+        tier = "trial"
+
+    is_paid = tier in {"tier2", "tier3"}
+    providers = [
+        {"id": "gemini", "name": "Google Gemini", "available": True, "free": True},
+        {"id": "groq", "name": "Groq (Llama)", "available": True, "free": True},
+        {"id": "openai", "name": "OpenAI GPT-4", "available": is_paid, "free": False},
+        {"id": "claude", "name": "Claude (Anthropic)", "available": is_paid, "free": False},
+    ]
+    return _ok({"providers": providers, "tier": tier})
+
+
 # ============================================================================
 # ANALYTICS ENDPOINTS
 # ============================================================================
