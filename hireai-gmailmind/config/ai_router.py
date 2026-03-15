@@ -1,0 +1,326 @@
+"""Central AI Router for all LLM calls.
+
+Routes requests to the correct AI provider (Gemini, Groq, OpenAI, Claude)
+based on the user's tier and configuration. Free/trial users are forced
+to Gemini or Groq (HireAI managed keys). Paid users can use any provider
+with their own keys (BYOK) or HireAI managed keys.
+
+Usage::
+
+    router = AIRouter()
+    result = await router.generate(
+        user_id="usr_123",
+        system_prompt="You are an email assistant.",
+        user_message="Classify this email...",
+    )
+    print(result["content"], result["provider"], result["model"])
+"""
+
+import logging
+import os
+from typing import Optional
+
+from sqlalchemy import text
+
+from config.database import SessionLocal
+
+logger = logging.getLogger(__name__)
+
+
+class AIRouter:
+    """Central router for all AI/LLM calls.
+
+    Reads user's ai_provider from user_agents table,
+    routes to correct provider, returns unified response.
+    """
+
+    PROVIDER_MAP = {
+        "gemini": "_call_gemini",
+        "groq": "_call_groq",
+        "openai": "_call_openai",
+        "claude": "_call_claude",
+    }
+
+    # Free-tier providers (no BYOK needed)
+    FREE_PROVIDERS = {"gemini", "groq"}
+
+    # Tiers that can use any provider
+    PAID_TIERS = {"tier2", "tier3"}
+
+    # Tier-based model selection
+    PROVIDER_MODELS = {
+        "gemini": {
+            "default": "gemini-1.5-flash",
+            "trial": "gemini-1.5-flash",
+            "tier1": "gemini-1.5-flash",
+            "tier2": "gemini-1.5-pro",
+            "tier3": "gemini-1.5-pro",
+        },
+        "groq": {
+            "default": "llama-3.1-8b-instant",
+            "trial": "llama-3.1-8b-instant",
+            "tier1": "llama-3.1-8b-instant",
+            "tier2": "llama-3.1-70b-versatile",
+            "tier3": "llama-3.1-70b-versatile",
+        },
+        "openai": {
+            "default": "gpt-4o-mini",
+            "trial": "gpt-4o-mini",
+            "tier1": "gpt-4o-mini",
+            "tier2": "gpt-4o",
+            "tier3": "gpt-4o",
+        },
+        "claude": {
+            "default": "claude-haiku-3-5",
+            "trial": "claude-haiku-3-5",
+            "tier1": "claude-haiku-3-5",
+            "tier2": "claude-sonnet-4-5",
+            "tier3": "claude-sonnet-4-5",
+        },
+    }
+
+    # Env var name for each provider's managed API key
+    _ENV_MAP = {
+        "gemini": "GEMINI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "claude": "ANTHROPIC_API_KEY",
+    }
+
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
+
+    async def generate(
+        self,
+        user_id: str,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> dict:
+        """Main entry point. Returns {"content", "provider", "model"}.
+
+        Loads the user's configured provider, enforces tier restrictions,
+        resolves the API key, and calls the correct provider method.
+        If the primary provider fails, falls back to an alternate free
+        provider before giving up.
+        """
+        # 1. Load user config from user_agents table
+        provider, api_key, tier = self._get_user_config(user_id)
+
+        # 2. Enforce tier restrictions
+        provider = self._enforce_tier(provider, tier)
+
+        # 3. Resolve API key (BYOK or managed)
+        resolved_key = self._resolve_key(provider, api_key)
+
+        # 4. Get correct model for provider + tier
+        model = self._get_model(provider, tier)
+
+        # 5. Call the correct provider (with fallback on failure)
+        try:
+            method = getattr(self, self.PROVIDER_MAP[provider])
+            result = await method(
+                system_prompt, user_message, resolved_key, model,
+                max_tokens, temperature,
+            )
+            return result
+        except Exception as exc:
+            logger.error("Provider %s failed: %s", provider, exc)
+
+            # Fallback: try alternate free provider
+            fallback = "groq" if provider != "groq" else "gemini"
+            try:
+                logger.info("Falling back to %s", fallback)
+                fallback_key = self._resolve_key(fallback, None)
+                fallback_model = self._get_model(fallback, tier)
+                fallback_method = getattr(self, self.PROVIDER_MAP[fallback])
+                result = await fallback_method(
+                    system_prompt, user_message, fallback_key,
+                    fallback_model, max_tokens, temperature,
+                )
+                result["fallback"] = True
+                result["original_provider"] = provider
+                return result
+            except Exception as fallback_exc:
+                logger.error("Fallback %s also failed: %s", fallback, fallback_exc)
+                return {
+                    "content": (
+                        "I apologize, but I'm unable to process this "
+                        "request right now. Please try again later."
+                    ),
+                    "provider": "none",
+                    "model": "none",
+                    "error": str(exc),
+                }
+
+    async def check_provider(self, provider: str) -> dict:
+        """Test if a provider is reachable and responding."""
+        if provider not in self.PROVIDER_MAP:
+            return {"provider": provider, "status": "error", "error": "Unknown provider"}
+        try:
+            key = self._resolve_key(provider, None)
+            model = self._get_model(provider, "trial")
+            method = getattr(self, self.PROVIDER_MAP[provider])
+            result = await method(
+                "You are a test assistant.", "Say hello in one word.",
+                key, model, 10, 0.1,
+            )
+            return {"provider": provider, "status": "healthy", "model": result["model"]}
+        except Exception as exc:
+            return {"provider": provider, "status": "error", "error": str(exc)}
+
+    # ------------------------------------------------------------------ #
+    # Config helpers
+    # ------------------------------------------------------------------ #
+
+    def _get_user_config(self, user_id: str) -> tuple:
+        """Read ai_provider, ai_api_key, tier from user_agents table.
+
+        Returns:
+            (provider, byok_key_or_none, tier)
+        """
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text(
+                        "SELECT ai_provider, ai_api_key, tier "
+                        "FROM user_agents WHERE user_id = :uid"
+                    ),
+                    {"uid": user_id},
+                ).fetchone()
+                if row:
+                    return (row[0] or "gemini", row[1], row[2] or "trial")
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("Could not load user config: %s", exc)
+        return ("gemini", None, "trial")
+
+    def _enforce_tier(self, provider: str, tier: str) -> str:
+        """Free/trial/tier1 users are forced to gemini or groq."""
+        if tier not in self.PAID_TIERS and provider not in self.FREE_PROVIDERS:
+            logger.warning(
+                "User on tier=%s tried provider=%s, forcing gemini",
+                tier, provider,
+            )
+            return "gemini"
+        return provider
+
+    def _resolve_key(self, provider: str, byok_key: Optional[str] = None) -> str:
+        """Use BYOK key if provided, else fall back to env var."""
+        if byok_key:
+            return byok_key
+        env_name = self._ENV_MAP.get(provider, "")
+        key = os.environ.get(env_name, "")
+        if not key:
+            raise ValueError(
+                f"No API key for provider={provider}. "
+                f"Set {env_name} env var or provide a BYOK key."
+            )
+        return key
+
+    def _get_model(self, provider: str, tier: str) -> str:
+        """Get the correct model name for a provider + tier combination."""
+        models = self.PROVIDER_MODELS.get(provider, {})
+        return models.get(tier, models.get("default", "gemini-1.5-flash"))
+
+    # ------------------------------------------------------------------ #
+    # Provider implementations
+    # ------------------------------------------------------------------ #
+
+    async def _call_gemini(
+        self, system_prompt: str, user_message: str,
+        api_key: str, model: str,
+        max_tokens: int, temperature: float,
+    ) -> dict:
+        """Call Google Gemini API."""
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        gm = genai.GenerativeModel(model)
+
+        prompt = f"{system_prompt}\n\nUser message:\n{user_message}"
+        response = gm.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            ),
+        )
+        return {
+            "content": response.text,
+            "provider": "gemini",
+            "model": model,
+        }
+
+    async def _call_groq(
+        self, system_prompt: str, user_message: str,
+        api_key: str, model: str,
+        max_tokens: int, temperature: float,
+    ) -> dict:
+        """Call Groq API (Llama models)."""
+        from groq import Groq
+
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return {
+            "content": response.choices[0].message.content,
+            "provider": "groq",
+            "model": model,
+        }
+
+    async def _call_openai(
+        self, system_prompt: str, user_message: str,
+        api_key: str, model: str,
+        max_tokens: int, temperature: float,
+    ) -> dict:
+        """Call OpenAI API."""
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return {
+            "content": response.choices[0].message.content,
+            "provider": "openai",
+            "model": model,
+        }
+
+    async def _call_claude(
+        self, system_prompt: str, user_message: str,
+        api_key: str, model: str,
+        max_tokens: int, temperature: float,
+    ) -> dict:
+        """Call Anthropic Claude API."""
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        return {
+            "content": response.content[0].text,
+            "provider": "claude",
+            "model": model,
+        }
