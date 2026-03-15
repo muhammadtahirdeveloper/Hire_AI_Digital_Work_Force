@@ -25,7 +25,7 @@ import bcrypt
 import jwt
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -85,6 +85,9 @@ def _build_flow() -> Flow:
 
 # In-memory store: state -> code_verifier (cleared after use)
 _pkce_store: dict[str, str] = {}
+
+# In-memory store: state -> setup metadata (setup=true, email)
+_setup_store: dict[str, dict] = {}
 
 
 def _generate_pkce() -> tuple[str, str]:
@@ -538,12 +541,18 @@ async def get_user(email: str):
 
 
 @router.get("/google")
-async def google_auth_redirect():
+async def google_auth_redirect(
+    setup: str = Query("", description="Set to 'true' if called from setup wizard"),
+    email: str = Query("", description="User email for setup context"),
+):
     """Redirect the user to the Google OAuth2 consent screen.
 
     The user will be asked to grant Gmail access permissions defined
     in GMAIL_SCOPES. After consent, Google redirects back to
     /auth/google/callback with an authorization code.
+
+    If setup=true, the callback will return an HTML page that posts
+    a message to the parent window (for popup OAuth flow).
     """
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(
@@ -566,7 +575,11 @@ async def google_auth_redirect():
     # Store code_verifier keyed by state so the callback can retrieve it.
     _pkce_store[state] = code_verifier
 
-    logger.info("Redirecting to Google OAuth consent screen (PKCE enabled).")
+    # Store setup metadata if this is from the setup wizard
+    if setup.lower() == "true":
+        _setup_store[state] = {"setup": True, "email": email}
+
+    logger.info("Redirecting to Google OAuth consent screen (PKCE enabled, setup=%s).", setup)
     return RedirectResponse(url=authorization_url)
 
 
@@ -617,10 +630,29 @@ async def google_auth_callback(
         "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
     }
 
-    # Save encrypted credentials to database using EncryptionManager
-    # Use "default" as user_id for now (single-user setup).
-    # In multi-user mode, extract user_id from the OAuth state parameter.
-    user_id = "default"
+    # Check if this was a setup wizard OAuth flow
+    setup_meta = _setup_store.pop(state, None)
+    setup_email = (setup_meta or {}).get("email", "")
+    is_setup = bool(setup_meta and setup_meta.get("setup"))
+
+    # Determine user_id — use email if available, else "default"
+    user_id = setup_email or "default"
+
+    # If we have a setup email, try to find the actual user ID
+    if setup_email:
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text("SELECT id FROM users WHERE email = :email"),
+                    {"email": setup_email.lower()},
+                ).fetchone()
+                if row:
+                    user_id = str(row[0])
+            finally:
+                db.close()
+        except Exception:
+            pass
 
     try:
         save_user_credentials(user_id, token_data)
@@ -631,6 +663,43 @@ async def google_auth_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save credentials: {exc}",
         )
+
+    # Update gmail_token_valid in user_agents
+    if user_id != "default":
+        try:
+            db = SessionLocal()
+            try:
+                db.execute(
+                    text("""
+                        UPDATE user_agents
+                        SET gmail_token_valid = true, updated_at = NOW()
+                        WHERE user_id = :uid
+                    """),
+                    {"uid": user_id},
+                )
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+
+    # If setup wizard flow, return HTML that posts message to parent window
+    if is_setup:
+        return HTMLResponse(content="""
+<!DOCTYPE html>
+<html>
+<head><title>Gmail Connected</title></head>
+<body>
+<p>Gmail connected successfully! This window will close automatically.</p>
+<script>
+  if (window.opener) {
+    window.opener.postMessage({ type: "gmail-connected" }, "*");
+  }
+  setTimeout(function() { window.close(); }, 1500);
+</script>
+</body>
+</html>
+""")
 
     return _ok({
         "message": "Gmail OAuth authentication successful! Tokens saved.",
