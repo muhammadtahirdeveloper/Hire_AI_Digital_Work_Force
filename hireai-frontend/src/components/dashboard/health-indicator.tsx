@@ -3,39 +3,45 @@
 import Link from "next/link";
 import { CheckCircle2, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useHealthStatus, useAgentStatus, useDashboardStats } from "@/hooks/use-dashboard";
+import { useHealthStatus, useAgentStatus, useDashboardStats, useProviderHealth } from "@/hooks/use-dashboard";
 import { api } from "@/lib/api";
 import toast from "react-hot-toast";
 import { useState } from "react";
 
 function computeHealthScore(
   agentStatus: { gmail_valid?: boolean; is_paused?: boolean } | undefined,
-  stats: { emails_today?: number; auto_replied_today?: number } | undefined
+  stats: { emails_today?: number; auto_replied_today?: number } | undefined,
+  providerStatus?: { status?: string; provider?: string } | undefined,
 ): { score: number; breakdown: { label: string; points: number; max: number }[] } {
   const breakdown = [
     {
       label: "Gmail connected",
-      points: agentStatus?.gmail_valid ? 25 : 0,
-      max: 25,
+      points: agentStatus?.gmail_valid ? 20 : 0,
+      max: 20,
     },
     {
       label: "Agent active",
-      points: agentStatus && !agentStatus.is_paused ? 25 : 0,
-      max: 25,
+      points: agentStatus && !agentStatus.is_paused ? 20 : 0,
+      max: 20,
+    },
+    {
+      label: `AI: ${providerStatus?.provider ? providerStatus.provider.charAt(0).toUpperCase() + providerStatus.provider.slice(1) : "Provider"} (${providerStatus?.status === "healthy" ? "healthy" : "error"})`,
+      points: providerStatus?.status === "healthy" ? 20 : 0,
+      max: 20,
     },
     {
       label: "Emails processed today",
-      points: (stats?.emails_today ?? 0) > 0 ? 25 : 0,
-      max: 25,
+      points: (stats?.emails_today ?? 0) > 0 ? 20 : 0,
+      max: 20,
     },
     {
       label: "Auto-reply rate > 80%",
       points:
         (stats?.emails_today ?? 0) > 0 &&
         ((stats?.auto_replied_today ?? 0) / (stats?.emails_today ?? 1)) * 100 > 80
-          ? 25
+          ? 20
           : 0,
-      max: 25,
+      max: 20,
     },
   ];
   const score = breakdown.reduce((sum, b) => sum + b.points, 0);
@@ -67,6 +73,7 @@ export function HealthIndicator() {
   const { data: health, mutate } = useHealthStatus();
   const { data: agentStatus } = useAgentStatus();
   const { data: stats } = useDashboardStats();
+  const { data: providerHealth } = useProviderHealth();
   const [restarting, setRestarting] = useState(false);
 
   const handleRestart = async () => {
@@ -81,7 +88,7 @@ export function HealthIndicator() {
     setRestarting(false);
   };
 
-  const { score, breakdown } = computeHealthScore(agentStatus, stats);
+  const { score, breakdown } = computeHealthScore(agentStatus, stats, providerHealth);
   const circumference = 2 * Math.PI * 40;
   const offset = circumference - (score / 100) * circumference;
 

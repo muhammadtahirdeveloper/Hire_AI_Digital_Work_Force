@@ -45,7 +45,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { useAgentStatus } from "@/hooks/use-dashboard";
+import { useAgentStatus, useProviderHealth } from "@/hooks/use-dashboard";
 import toast from "react-hot-toast";
 
 // --- Data ---
@@ -185,6 +185,7 @@ interface AgentConfig {
 export default function AgentManagementPage() {
   const { data: session } = useSession();
   const { data: agentStatus, mutate: mutateAgent } = useAgentStatus();
+  const { data: providerHealth } = useProviderHealth();
   const [switchModalOpen, setSwitchModalOpen] = useState(false);
   const [pendingAgent, setPendingAgent] = useState<AgentType | null>(null);
   const [tierModalOpen, setTierModalOpen] = useState(false);
@@ -470,6 +471,53 @@ export default function AgentManagementPage() {
                 {modelDescriptions[currentModel] ||
                   "Your agent uses this model for processing emails."}
               </p>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* 3b. PROVIDER HEALTH */}
+      <Card>
+        <CardBody className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-background-2">
+              <span
+                className={cn(
+                  "h-4 w-4 rounded-full",
+                  providerHealth?.status === "healthy"
+                    ? "bg-success"
+                    : providerHealth?.status === "error"
+                    ? "bg-danger"
+                    : "bg-text-4"
+                )}
+              />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-semibold text-text">AI Provider</h3>
+                <Badge
+                  variant={providerHealth?.status === "healthy" ? "success" : "danger"}
+                >
+                  {providerHealth?.status === "healthy" ? "Healthy" : providerHealth?.status === "error" ? "Error" : "Checking..."}
+                </Badge>
+              </div>
+              <p className="mt-1 text-sm text-text-2">
+                Provider:{" "}
+                <span className="font-medium capitalize">
+                  {providerHealth?.provider || "loading..."}
+                </span>
+              </p>
+              <p className="text-sm text-text-3">
+                Model:{" "}
+                <span className="font-mono text-xs">
+                  {providerHealth?.model || currentModel}
+                </span>
+              </p>
+              {providerHealth?.error && (
+                <p className="mt-1 text-xs text-danger">
+                  {providerHealth.error} — system will use fallback provider
+                </p>
+              )}
             </div>
           </div>
         </CardBody>

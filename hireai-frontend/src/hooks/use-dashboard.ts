@@ -81,6 +81,23 @@ export function useEscalatedEmails() {
   );
 }
 
+// --- Provider health hooks ---
+
+export interface ProviderHealth {
+  provider: string;
+  status: "healthy" | "error";
+  model?: string;
+  tier?: string;
+  error?: string;
+}
+
+export function useProviderHealth() {
+  return useSWR<ProviderHealth>("/api/agent/provider-health", fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: true,
+  });
+}
+
 // --- Health hooks ---
 
 export interface HealthStatus {

@@ -383,6 +383,55 @@ async def configure_agent(
         return _ok({"message": "Agent configured"})
 
 
+@router.get("/agent/provider-health")
+async def check_provider_health(user: dict = Depends(get_current_user)):
+    """Check health of user's configured AI provider."""
+    user_id = user.get("sub", "")
+    try:
+        from config.ai_router import AIRouter
+
+        router_instance = AIRouter()
+        provider, _, tier = router_instance._get_user_config(user_id)
+        provider = router_instance._enforce_tier(provider, tier)
+        model = router_instance._get_model(provider, tier)
+
+        health = await router_instance.check_provider(provider)
+        health["tier"] = tier
+        health["model"] = model
+        return _ok(health)
+    except Exception as exc:
+        logger.error("Provider health check failed: %s", exc)
+        return _ok({
+            "provider": "unknown",
+            "status": "error",
+            "error": str(exc),
+            "tier": "trial",
+            "model": "unknown",
+        })
+
+
+@router.get("/agent/all-providers-health")
+async def check_all_providers_health(user: dict = Depends(get_current_user)):
+    """Check health of all available providers (admin endpoint)."""
+    try:
+        from config.ai_router import AIRouter
+
+        router_instance = AIRouter()
+        results = {}
+        for provider in ["gemini", "groq"]:
+            try:
+                results[provider] = await router_instance.check_provider(provider)
+            except Exception as exc:
+                results[provider] = {"status": "error", "error": str(exc)}
+        return _ok(results)
+    except Exception as exc:
+        logger.error("All providers health check failed: %s", exc)
+        return _ok({
+            "gemini": {"status": "error", "error": str(exc)},
+            "groq": {"status": "error", "error": str(exc)},
+        })
+
+
 @router.post("/agent/test-mode")
 async def toggle_test_mode(user: dict = Depends(get_current_user)):
     """Toggle test mode."""
