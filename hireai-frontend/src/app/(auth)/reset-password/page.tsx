@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Lock, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { Lock, Eye, EyeOff, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 
@@ -159,5 +159,23 @@ export default function ResetPasswordPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="w-full max-w-md">
+          <div className="rounded-xl border border-border bg-background p-8 shadow-sm">
+            <div className="flex justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-navy" />
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <ResetPasswordContent />
+    </Suspense>
   );
 }
