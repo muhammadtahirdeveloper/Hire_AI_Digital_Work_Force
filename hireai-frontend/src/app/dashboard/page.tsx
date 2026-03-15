@@ -228,6 +228,36 @@ export default function DashboardOverviewPage() {
         </div>
       )}
 
+      {/* Plan expiry warning */}
+      {!isTrial && user?.trialEndDate && getTrialDaysLeft(user.trialEndDate) <= 7 && getTrialDaysLeft(user.trialEndDate) > 0 && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-warning">
+              <AlertTriangle className="mr-1.5 inline h-4 w-4" />
+              Your plan expires in {getTrialDaysLeft(user.trialEndDate)} days
+            </span>
+            <Link href="/dashboard/billing">
+              <Button size="sm">Renew Now</Button>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* API key / Gmail invalid warning */}
+      {agentStatus && !agentStatus.gmail_valid && (
+        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-danger">
+              <AlertTriangle className="mr-1.5 inline h-4 w-4" />
+              Your API key or Gmail connection is invalid. Update to resume agent operations.
+            </span>
+            <Link href="/dashboard/settings">
+              <Button size="sm" variant="danger">Update Settings</Button>
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* 3. QUICK ACTIONS */}
       <div className="flex flex-wrap items-center gap-3">
         <Button
@@ -361,6 +391,56 @@ export default function DashboardOverviewPage() {
           </Card>
         </div>
       )}
+
+      {/* USAGE METER */}
+      {(() => {
+        const tierLimits: Record<string, number> = { trial: 100, tier1: 500, tier2: 5000 };
+        const limit = tierLimits[user?.tier || "trial"] ?? 0;
+        const monthlyUsed = stats?.emails_this_month ?? emailsProcessed;
+        const isUnlimited = user?.tier === "tier3";
+        const pct = isUnlimited ? 0 : limit > 0 ? Math.min(100, Math.round((monthlyUsed / limit) * 100)) : 0;
+        const isWarning = pct >= 80 && pct < 100;
+        const isLimit = pct >= 100;
+
+        return (
+          <Card>
+            <CardBody className="p-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-text">Emails this month</p>
+                <p className="text-sm text-text-3">
+                  {monthlyUsed}{isUnlimited ? " / Unlimited" : ` / ${limit.toLocaleString()}`}
+                </p>
+              </div>
+              {!isUnlimited && (
+                <div className="mt-2 h-2 w-full rounded-full bg-background-2">
+                  <div
+                    className={cn(
+                      "h-2 rounded-full transition-all",
+                      isLimit ? "bg-danger" : isWarning ? "bg-warning" : "bg-navy"
+                    )}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              )}
+              {isWarning && (
+                <p className="mt-2 flex items-center gap-1 text-xs text-warning">
+                  <AlertTriangle className="h-3 w-3" />
+                  Approaching limit — <Link href="/dashboard/billing" className="font-medium underline">upgrade plan</Link>
+                </p>
+              )}
+              {isLimit && (
+                <p className="mt-2 flex items-center gap-1 text-xs text-danger">
+                  <AlertTriangle className="h-3 w-3" />
+                  Limit reached — agent paused. <Link href="/dashboard/billing" className="font-medium underline">Upgrade now</Link>
+                </p>
+              )}
+              {isUnlimited && (
+                <p className="mt-2 text-xs text-success">Unlimited emails on your plan</p>
+              )}
+            </CardBody>
+          </Card>
+        );
+      })()}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* 5. LIVE ACTIVITY FEED */}

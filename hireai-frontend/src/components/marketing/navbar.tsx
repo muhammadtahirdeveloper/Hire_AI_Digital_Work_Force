@@ -23,9 +23,7 @@ export function Navbar() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Left: Logo */}
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-navy text-white font-bold text-sm">
-            H
-          </div>
+          <img src="/logo.svg" alt="HireAI" className="h-8 w-8 dark:invert" />
           <span className="text-lg font-bold text-text">HireAI</span>
         </Link>
 

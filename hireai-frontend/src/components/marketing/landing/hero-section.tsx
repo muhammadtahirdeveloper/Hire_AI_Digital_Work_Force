@@ -1,16 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Sparkles, Rocket } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-
-const avatars = [
-  { initials: "SA", bg: "bg-navy" },
-  { initials: "MK", bg: "bg-emerald-600" },
-  { initials: "ZA", bg: "bg-amber-600" },
-  { initials: "RH", bg: "bg-rose-600" },
-];
 
 export function HeroSection() {
   return (
@@ -80,26 +73,20 @@ export function HeroSection() {
             </Link>
           </motion.div>
 
-          {/* Social Proof */}
+          {/* Beta Badge - replaces fake social proof */}
           <motion.div
             className="mt-12 flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
           >
-            <div className="flex -space-x-2">
-              {avatars.map((a) => (
-                <div
-                  key={a.initials}
-                  className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-background text-xs font-medium text-white ${a.bg}`}
-                >
-                  {a.initials}
-                </div>
-              ))}
+            <div className="flex items-center gap-2 rounded-full border border-navy/20 bg-navy/5 px-4 py-2">
+              <Rocket className="h-4 w-4 text-navy" />
+              <p className="text-sm font-medium text-text-2">
+                Early Bird Pricing Active — Save up to 70%
+              </p>
+              <Sparkles className="h-4 w-4 text-navy" />
             </div>
-            <p className="text-sm text-text-3">
-              Trusted by 50+ businesses across 4 industries
-            </p>
           </motion.div>
         </div>
       </div>

@@ -9,11 +9,14 @@ import { cn } from "@/lib/utils";
 const plans = [
   {
     name: "Starter",
-    price: 19,
-    model: "gpt-4o-mini",
+    price: 9,
+    badge: "Best for Testing",
+    model: "Gemini / Groq (Free)",
     featured: false,
     features: [
       "500 emails/month",
+      "Free API (Gemini/Groq) — HireAI managed",
+      "Optional BYOK any provider",
       "1 Gmail account",
       "Smart classification",
       "Auto reply drafts",
@@ -22,29 +25,34 @@ const plans = [
   },
   {
     name: "Professional",
-    price: 49,
-    model: "gpt-4o",
+    price: 29,
+    badge: "Most Popular",
+    model: "Claude Haiku — HireAI managed",
     featured: true,
     features: [
       "5,000 emails/month",
-      "3 Gmail accounts",
-      "All Starter features",
+      "Claude Haiku — HireAI managed",
+      "Optional BYOK any provider",
+      "All 4 agents",
       "Custom rules engine",
       "WhatsApp escalation",
-      "Priority support",
+      "Advanced analytics",
     ],
   },
   {
     name: "Enterprise",
-    price: 99,
-    model: "claude-sonnet",
+    price: 59,
+    byokPrice: 39,
+    badge: "Full Control",
+    model: "Any model — BYOK option",
     featured: false,
     features: [
       "Unlimited emails",
-      "10 Gmail accounts",
+      "$59/mo (HireAI managed key)",
+      "$39/mo with BYOK",
       "All Professional features",
-      "Advanced analytics",
-      "Custom agent training",
+      "Own database",
+      "API access",
       "Dedicated support",
     ],
   },
@@ -79,9 +87,14 @@ export function PricingSection() {
                   </span>
                 )}
 
-                <h3 className="text-lg font-semibold text-text">
-                  {plan.name}
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-text">
+                    {plan.name}
+                  </h3>
+                  <span className="rounded-full bg-background-1 border border-border px-2.5 py-0.5 text-[10px] font-medium text-text-3">
+                    {plan.badge}
+                  </span>
+                </div>
 
                 <div className="mt-4 flex items-baseline gap-1">
                   <span className="text-4xl font-bold text-text">

@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
+  const [needsVerification, setNeedsVerification] = useState(false);
 
   const handleGoogleLogin = () => {
     setGoogleLoading(true);
@@ -33,7 +34,12 @@ export default function LoginPage() {
       });
 
       if (res?.error) {
-        setError("Invalid email or password");
+        if (res.error.includes("verify") || res.error.includes("Verify")) {
+          setNeedsVerification(true);
+          setError("Please verify your email before signing in. Check your inbox for the verification link.");
+        } else {
+          setError("Invalid email or password");
+        }
       } else {
         window.location.href = "/dashboard";
       }
@@ -108,6 +114,13 @@ export default function LoginPage() {
           {error && (
             <div className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
               {error}
+              {needsVerification && (
+                <p className="mt-1">
+                  <Link href="/signup" className="font-medium text-navy hover:underline">
+                    Resend verification email
+                  </Link>
+                </p>
+              )}
             </div>
           )}
 

@@ -10,7 +10,7 @@ export async function middleware(request: NextRequest) {
   });
 
   const isAuthenticated = !!token;
-  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup");
+  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/verify-email") || pathname.startsWith("/forgot-password") || pathname.startsWith("/reset-password");
   const isDashboard = pathname.startsWith("/dashboard");
 
   // Redirect authenticated users away from auth pages
@@ -29,5 +29,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/signup"],
+  matcher: ["/dashboard/:path*", "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password"],
 };

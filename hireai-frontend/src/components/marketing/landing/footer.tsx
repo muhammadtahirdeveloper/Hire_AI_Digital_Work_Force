@@ -14,9 +14,7 @@ export function Footer() {
         <div className="flex flex-col items-center gap-6 sm:flex-row sm:justify-between">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-navy text-xs font-bold text-white">
-              H
-            </div>
+            <img src="/logo.svg" alt="HireAI" className="h-7 w-7 dark:invert" />
             <span className="text-sm font-bold text-text">HireAI</span>
           </div>
 

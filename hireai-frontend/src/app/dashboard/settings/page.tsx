@@ -16,7 +16,14 @@ import {
   Smartphone,
   Volume2,
   Clock,
+  Bot,
+  CreditCard,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
+import Link from "next/link";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +38,7 @@ import {
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useAgentStatus } from "@/hooks/use-dashboard";
 import toast from "react-hot-toast";
@@ -83,6 +91,15 @@ export default function SettingsPage() {
     browser: true,
     sound: false,
   });
+
+  // Theme
+  const { theme, setTheme } = useTheme();
+
+  // Agent schedule state
+  const [scheduledPause, setScheduledPause] = useState(false);
+  const [pauseSchedule, setPauseSchedule] = useState("weekends");
+  const [pauseFrom, setPauseFrom] = useState("18:00");
+  const [pauseTo, setPauseTo] = useState("09:00");
 
   // Database state
   const [dbUrl, setDbUrl] = useState("");
@@ -159,6 +176,12 @@ export default function SettingsPage() {
           <TabsTrigger value="database" className="gap-1.5">
             <Database className="h-3.5 w-3.5" /> Database
           </TabsTrigger>
+          <TabsTrigger value="agent" className="gap-1.5">
+            <Bot className="h-3.5 w-3.5" /> Agent
+          </TabsTrigger>
+          <TabsTrigger value="billing" className="gap-1.5">
+            <CreditCard className="h-3.5 w-3.5" /> Billing
+          </TabsTrigger>
           <TabsTrigger value="integrations" className="gap-1.5">
             <Plug className="h-3.5 w-3.5" /> Integrations
           </TabsTrigger>
@@ -232,6 +255,42 @@ export default function SettingsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+
+              {/* Theme */}
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-text-2">
+                  Theme
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => setTheme("light")}
+                    className={cn(
+                      "flex items-center justify-center gap-2 rounded-lg border-2 px-3 py-2.5 text-sm transition-all",
+                      theme === "light" ? "border-navy bg-navy/5" : "border-border hover:border-border-2"
+                    )}
+                  >
+                    <Sun className="h-4 w-4" /> Light
+                  </button>
+                  <button
+                    onClick={() => setTheme("dark")}
+                    className={cn(
+                      "flex items-center justify-center gap-2 rounded-lg border-2 px-3 py-2.5 text-sm transition-all",
+                      theme === "dark" ? "border-navy bg-navy/5" : "border-border hover:border-border-2"
+                    )}
+                  >
+                    <Moon className="h-4 w-4" /> Dark
+                  </button>
+                  <button
+                    onClick={() => setTheme("system")}
+                    className={cn(
+                      "flex items-center justify-center gap-2 rounded-lg border-2 px-3 py-2.5 text-sm transition-all",
+                      theme === "system" ? "border-navy bg-navy/5" : "border-border hover:border-border-2"
+                    )}
+                  >
+                    <Monitor className="h-4 w-4" /> System
+                  </button>
                 </div>
               </div>
 
@@ -518,6 +577,133 @@ export default function SettingsPage() {
               )}
             </CardBody>
           </Card>
+        </TabsContent>
+
+        {/* TAB: Agent Schedule */}
+        <TabsContent value="agent">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Bot className="h-4 w-4 text-navy" />
+                <h3 className="text-sm font-semibold text-text">Agent Pause Schedule</h3>
+              </div>
+              <p className="text-sm text-text-3">
+                Automatically pause and resume your agent on a schedule
+              </p>
+            </CardHeader>
+            <CardBody className="space-y-6">
+              <Switch
+                checked={scheduledPause}
+                onCheckedChange={setScheduledPause}
+                label="Enable scheduled pause"
+              />
+
+              {scheduledPause && (
+                <div className="space-y-4 rounded-lg border border-border p-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-text-2">
+                      Schedule
+                    </label>
+                    <Select value={pauseSchedule} onValueChange={setPauseSchedule}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="weekends">Every weekend (Sat-Sun)</SelectItem>
+                        <SelectItem value="evenings">Every evening</SelectItem>
+                        <SelectItem value="custom">Custom hours</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {pauseSchedule !== "weekends" && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <Input
+                        label="Pause from"
+                        type="time"
+                        value={pauseFrom}
+                        onChange={(e) => setPauseFrom(e.target.value)}
+                      />
+                      <Input
+                        label="Resume at"
+                        type="time"
+                        value={pauseTo}
+                        onChange={(e) => setPauseTo(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  <p className="text-xs text-text-4">
+                    Your agent will automatically pause and resume based on this schedule.
+                    Emails received during pause will be queued and processed when the agent resumes.
+                  </p>
+
+                  <Button
+                    onClick={() => toast.success("Schedule saved")}
+                  >
+                    Save Schedule
+                  </Button>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        </TabsContent>
+
+        {/* TAB: Billing */}
+        <TabsContent value="billing">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-navy" />
+                  <h3 className="text-sm font-semibold text-text">Current Plan</h3>
+                </div>
+              </CardHeader>
+              <CardBody className="space-y-4">
+                <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                  <div>
+                    <p className="text-lg font-bold text-text capitalize">
+                      {agentStatus?.tier?.replace("tier", "Tier ") || user?.tier || "Trial"}
+                    </p>
+                    <p className="text-sm text-text-3">
+                      {agentStatus?.tier === "tier1" && "$19/mo"}
+                      {agentStatus?.tier === "tier2" && "$49/mo"}
+                      {agentStatus?.tier === "tier3" && "$99/mo"}
+                      {(!agentStatus?.tier || agentStatus?.tier === "trial") && "Free Trial"}
+                    </p>
+                  </div>
+                  <Badge variant={user?.tier === "trial" ? "warning" : "success"}>
+                    {user?.tier === "trial" ? "Trial" : "Active"}
+                  </Badge>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-text">Plan Actions</h3>
+              </CardHeader>
+              <CardBody className="space-y-3">
+                <Link href="/dashboard/billing">
+                  <Button className="w-full">Manage Plan & Billing</Button>
+                </Link>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => toast("Contact support at hireaidigitalemployee@gmail.com to downgrade your plan.")}
+                >
+                  Downgrade Plan
+                </Button>
+                <Button
+                  variant="danger"
+                  className="w-full"
+                  onClick={() => toast("Contact support at hireaidigitalemployee@gmail.com to cancel.", { icon: "\u26a0\ufe0f" })}
+                >
+                  Cancel Subscription
+                </Button>
+              </CardBody>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* TAB 5: Integrations */}

@@ -17,10 +17,32 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showVerification, setShowVerification] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   const handleGoogleSignup = () => {
     setGoogleLoading(true);
     signIn("google", { callbackUrl: "/dashboard" });
+  };
+
+  const handleResendVerification = async () => {
+    setResendLoading(true);
+    setResendSuccess(false);
+    try {
+      const res = await fetch(`${API_URL}/auth/send-verification-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (res.ok) {
+        setResendSuccess(true);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setResendLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,24 +75,69 @@ export default function SignupPage() {
         return;
       }
 
-      // Step 2: Sign in via NextAuth credentials provider
-      const res = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
-
-      if (res?.error) {
-        setError("Account created but sign-in failed. Please try logging in.");
-      } else {
-        window.location.href = "/dashboard";
-      }
+      // Show verification screen instead of auto-login
+      setShowVerification(true);
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
+  // Verification screen shown after successful registration
+  if (showVerification) {
+    return (
+      <div className="w-full max-w-md">
+        <div className="rounded-xl border border-border bg-background p-8 shadow-sm">
+          <div className="flex justify-center">
+            <div className="flex items-center gap-2">
+              <img src="/logo.svg" alt="HireAI" className="h-10 w-10 dark:invert" />
+              <span className="text-xl font-bold text-text">HireAI</span>
+            </div>
+          </div>
+
+          <div className="mt-8 flex justify-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-navy/10">
+              <Mail className="h-8 w-8 text-navy" />
+            </div>
+          </div>
+
+          <div className="mt-6 text-center">
+            <h1 className="text-2xl font-bold text-text">Check your email</h1>
+            <p className="mt-2 text-sm text-text-3">
+              We sent a verification link to{" "}
+              <span className="font-medium text-text">{email}</span>
+            </p>
+            <p className="mt-1 text-sm text-text-3">
+              Click the link in your email to verify your account.
+            </p>
+          </div>
+
+          <div className="mt-6">
+            {resendSuccess && (
+              <div className="mb-3 rounded-lg bg-emerald-500/10 px-3 py-2 text-center text-sm text-emerald-600">
+                Verification email resent!
+              </div>
+            )}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleResendVerification}
+              loading={resendLoading}
+            >
+              Resend verification email
+            </Button>
+          </div>
+
+          <p className="mt-6 text-center text-sm text-text-3">
+            <Link href="/login" className="font-medium text-navy hover:underline">
+              Back to login
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-md">

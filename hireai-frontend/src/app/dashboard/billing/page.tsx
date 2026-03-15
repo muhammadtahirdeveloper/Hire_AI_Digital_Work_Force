@@ -8,6 +8,7 @@ import {
   Copy,
   Gift,
   FileText,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -354,7 +355,15 @@ export default function BillingPage() {
                     <td className="px-4 py-3">
                       <Badge variant="success" size="sm">{row.status}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-text-4">{row.invoice}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => toast("Invoice download coming soon")}
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-navy hover:underline"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {row.invoice}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

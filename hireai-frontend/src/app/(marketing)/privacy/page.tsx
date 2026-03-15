@@ -36,7 +36,51 @@ const sections = [
     ],
   },
   {
-    title: "4. Cookies & Tracking",
+    title: "4. API Key Security (BYOK)",
+    content: [
+      "If you choose to bring your own API key (BYOK), your key is encrypted using AES-256 encryption before being stored in our database.",
+      "Your API key is only decrypted in-memory during agent execution and is never logged, displayed, or transmitted to any third party.",
+      "We do not have access to your API key in plain text. If you lose your key, you must generate a new one from your AI provider.",
+      "You can update or remove your API key at any time through your dashboard settings.",
+    ],
+  },
+  {
+    title: "5. Custom Database Security",
+    content: [
+      "If you connect your own PostgreSQL database, your connection URL is encrypted using AES-256 encryption.",
+      "All data processed by your agent is stored directly in your database — HireAI does not retain copies.",
+      "We test the database connection only when you explicitly request it. No persistent connections are maintained outside of agent execution.",
+      "If your custom database becomes unavailable, your agent will pause automatically until connectivity is restored.",
+    ],
+  },
+  {
+    title: "6. Notification Data Handling",
+    content: [
+      "Email notifications (weekly summaries, expiry warnings, agent alerts) are sent from hireaidigitalemployee@gmail.com.",
+      "WhatsApp notifications are sent via secure channels. Your phone number is encrypted at rest.",
+      "Browser push notifications are processed locally on your device. No notification content is stored on our servers.",
+      "You can manage all notification preferences through your dashboard settings.",
+    ],
+  },
+  {
+    title: "7. Billing Information",
+    content: [
+      "Payment processing is handled by secure third-party payment processors. We never store your full credit card details.",
+      "Invoice data (plan name, amount, date) is retained for billing history and compliance purposes.",
+      "Billing data is encrypted at rest and accessible only to you through your account settings.",
+    ],
+  },
+  {
+    title: "8. AI Provider Data Usage",
+    content: [
+      "When using HireAI-managed API keys, your email data is sent to the respective AI provider (Google Gemini, Groq, OpenAI, or Anthropic) for processing.",
+      "Each AI provider has its own data usage policy. HireAI-managed keys use API-only access, which means your data is NOT used for model training by any provider.",
+      "When using BYOK, your data is subject to the terms of your API key agreement with the respective provider.",
+      "We recommend reviewing the privacy policies of your chosen AI provider for complete details.",
+    ],
+  },
+  {
+    title: "9. Cookies & Tracking",
     content: [
       "We use essential cookies to maintain your session and authentication state.",
       "We use analytics cookies to understand how users interact with our platform. You can disable non-essential cookies through your browser settings.",
@@ -44,7 +88,7 @@ const sections = [
     ],
   },
   {
-    title: "5. Third-Party Services",
+    title: "10. Third-Party Services",
     content: [
       "Google OAuth: Used for authentication and Gmail access. Subject to Google's privacy policy.",
       "Payment processors: We use secure third-party payment processors for subscription billing. We never store your full credit card details.",
@@ -52,7 +96,7 @@ const sections = [
     ],
   },
   {
-    title: "6. Data Security",
+    title: "11. Data Security",
     content: [
       "We use industry-standard encryption (AES-256) for data at rest and TLS 1.3 for data in transit.",
       "Access to user data is restricted to authorized personnel with role-based access controls.",
@@ -61,7 +105,7 @@ const sections = [
     ],
   },
   {
-    title: "7. Your Rights",
+    title: "12. Your Rights",
     content: [
       "Access: You can request a copy of all personal data we hold about you.",
       "Correction: You can update or correct your personal information at any time through your account settings.",
@@ -71,7 +115,7 @@ const sections = [
     ],
   },
   {
-    title: "8. Data Retention",
+    title: "13. Data Retention",
     content: [
       "Account data is retained for as long as your account is active.",
       "Email metadata and analytics are retained for 12 months after processing.",
@@ -80,7 +124,7 @@ const sections = [
     ],
   },
   {
-    title: "9. Changes to This Policy",
+    title: "14. Changes to This Policy",
     content: [
       "We may update this privacy policy from time to time. We will notify you of significant changes via email or through a prominent notice on our platform.",
       "Continued use of our services after changes constitutes acceptance of the updated policy.",
@@ -98,7 +142,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="mt-4 text-text-3">
-            Last updated: January 15, 2025
+            Last updated: March 15, 2026
           </p>
         </div>
 

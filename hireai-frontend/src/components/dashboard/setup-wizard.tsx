@@ -12,6 +12,11 @@ import {
   Mail,
   Sparkles,
   Database,
+  Zap,
+  Brain,
+  Bot,
+  AlertTriangle,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,11 +24,14 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
 type AgentType = "general" | "hr" | "real_estate" | "ecommerce";
+type AiModel = "gemini" | "groq" | "openai" | "claude";
 
 interface SetupData {
   gmailAddress: string;
   gmailConnected: boolean;
   agentType: AgentType | null;
+  aiModel: AiModel;
+  aiApiKey: string;
   businessName: string;
   userName: string;
   replyTone: "formal" | "friendly" | "casual";
@@ -67,15 +75,53 @@ const tones = [
   { value: "casual" as const, label: "Casual", description: "Relaxed and conversational" },
 ];
 
-const TOTAL_STEPS = 6;
+const aiModels = [
+  {
+    id: "gemini" as AiModel,
+    icon: Zap,
+    label: "Google Gemini",
+    description: "Fast and free — great for getting started",
+    tag: "Free",
+    free: true,
+  },
+  {
+    id: "groq" as AiModel,
+    icon: Bot,
+    label: "Groq (Llama)",
+    description: "Ultra-fast inference, free tier",
+    tag: "Free",
+    free: true,
+  },
+  {
+    id: "openai" as AiModel,
+    icon: Brain,
+    label: "OpenAI GPT-4",
+    description: "Powerful and versatile — bring your own key",
+    tag: "BYOK",
+    free: false,
+  },
+  {
+    id: "claude" as AiModel,
+    icon: Sparkles,
+    label: "Claude (Anthropic)",
+    description: "Best reasoning and safety — bring your own key",
+    tag: "BYOK",
+    free: false,
+  },
+];
+
+const TOTAL_STEPS = 7;
 
 export function SetupWizard() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [showFreeWarning, setShowFreeWarning] = useState(false);
   const [data, setData] = useState<SetupData>({
     gmailAddress: "",
     gmailConnected: false,
     agentType: null,
+    aiModel: "gemini",
+    aiApiKey: "",
     businessName: "",
     userName: "",
     replyTone: "friendly",
@@ -86,6 +132,8 @@ export function SetupWizard() {
     customDbUrl: "",
   });
 
+  const isFreeModel = aiModels.find((m) => m.id === data.aiModel)?.free ?? true;
+
   const canProceed = (): boolean => {
     switch (step) {
       case 1:
@@ -95,8 +143,12 @@ export function SetupWizard() {
       case 3:
         return data.agentType !== null;
       case 4:
-        return data.businessName.trim() !== "" && data.userName.trim() !== "";
+        // AI Model step: free models always ok, BYOK models need a key
+        if (isFreeModel) return true;
+        return data.aiApiKey.trim().length > 0;
       case 5:
+        return data.businessName.trim() !== "" && data.userName.trim() !== "";
+      case 6:
         return true; // Database step is optional
       default:
         return true;
@@ -111,12 +163,24 @@ export function SetupWizard() {
     }
   };
 
+  const handleSelectModel = (modelId: AiModel) => {
+    setData((prev) => ({ ...prev, aiModel: modelId, aiApiKey: "" }));
+    const model = aiModels.find((m) => m.id === modelId);
+    if (model?.free) {
+      setShowFreeWarning(true);
+    } else {
+      setShowFreeWarning(false);
+    }
+  };
+
   const handleFinish = async () => {
     setLoading(true);
     try {
       await api.post("/auth/setup", {
         gmail_address: data.gmailAddress,
         agent_type: data.agentType,
+        ai_model: data.aiModel,
+        ai_api_key: data.aiApiKey || null,
         business_name: data.businessName,
         user_name: data.userName,
         reply_tone: data.replyTone,
@@ -134,7 +198,7 @@ export function SetupWizard() {
       // Non-critical — dashboard still works
     }
     setLoading(false);
-    setStep(6);
+    setStep(7);
   };
 
   return (
@@ -169,7 +233,7 @@ export function SetupWizard() {
                 Welcome to HireAI!
               </h2>
               <p className="mt-2 text-text-3">
-                Let&apos;s get you set up in 3 quick steps. Your AI email agent
+                Let&apos;s get you set up in a few quick steps. Your AI email agent
                 will be live in no time.
               </p>
             </div>
@@ -282,8 +346,123 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* Step 4: Business Profile */}
+          {/* Step 4: AI Model */}
           {step === 4 && (
+            <div>
+              <h2 className="text-xl font-bold text-text">Choose AI Model</h2>
+              <p className="mt-1 text-sm text-text-3">
+                Select the AI provider for your agent
+              </p>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {aiModels.map((model) => (
+                  <button
+                    key={model.id}
+                    onClick={() => handleSelectModel(model.id)}
+                    className={cn(
+                      "flex flex-col items-start gap-3 rounded-xl border-2 p-5 text-left transition-all",
+                      data.aiModel === model.id
+                        ? "border-navy bg-navy/5"
+                        : "border-border hover:border-border-2"
+                    )}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <div
+                        className={cn(
+                          "flex h-10 w-10 items-center justify-center rounded-lg",
+                          data.aiModel === model.id
+                            ? "bg-navy text-white"
+                            : "bg-background-2 text-text-3"
+                        )}
+                      >
+                        <model.icon className="h-5 w-5" />
+                      </div>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                          model.free
+                            ? "bg-success/10 text-success"
+                            : "bg-background-2 text-text-3"
+                        )}
+                      >
+                        {model.tag}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="font-medium text-text">{model.label}</p>
+                      <p className="mt-0.5 text-xs text-text-3">
+                        {model.description}
+                      </p>
+                    </div>
+                    {data.aiModel === model.id && (
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-navy text-white">
+                        <Check className="h-3 w-3" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Free model warning */}
+              {isFreeModel && showFreeWarning && (
+                <div className="mt-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <div>
+                      <p className="text-sm font-medium text-text-2">
+                        Free Model Notice
+                      </p>
+                      <p className="mt-0.5 text-xs text-text-3">
+                        Free models may produce less accurate results than Claude or GPT-4.
+                      </p>
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowFreeWarning(false)}
+                        >
+                          Use Free Model
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            handleSelectModel("claude");
+                            setShowFreeWarning(false);
+                          }}
+                        >
+                          Use Claude Instead
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* BYOK key input for non-free models */}
+              {!isFreeModel && (
+                <div className="mt-4">
+                  <Input
+                    label="API Key"
+                    type="password"
+                    placeholder={
+                      data.aiModel === "openai"
+                        ? "sk-..."
+                        : "sk-ant-..."
+                    }
+                    value={data.aiApiKey}
+                    onChange={(e) =>
+                      setData((prev) => ({ ...prev, aiApiKey: e.target.value }))
+                    }
+                    prefixIcon={<Lock className="h-4 w-4" />}
+                    helperText="Your API key is encrypted and never shared"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 5: Business Profile */}
+          {step === 5 && (
             <div>
               <h2 className="text-xl font-bold text-text">Business profile</h2>
               <p className="mt-1 text-sm text-text-3">
@@ -389,8 +568,8 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* Step 5: Database (optional) */}
-          {step === 5 && (
+          {/* Step 6: Database (optional) */}
+          {step === 6 && (
             <div>
               <div className="flex items-center gap-3 mb-6">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-navy-light">
@@ -471,8 +650,8 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* Step 6: Done */}
-          {step === 6 && (
+          {/* Step 7: Done */}
+          {step === 7 && (
             <div className="text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success-light">
                 <Check className="h-8 w-8 text-success" />
@@ -496,6 +675,12 @@ export function SetupWizard() {
                     <span className="text-text-3">Agent</span>
                     <span className="font-medium text-text">
                       {agents.find((a) => a.type === data.agentType)?.label}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-text-3">AI Model</span>
+                    <span className="font-medium text-text">
+                      {aiModels.find((m) => m.id === data.aiModel)?.label}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -523,7 +708,7 @@ export function SetupWizard() {
                 className="mt-8"
                 size="lg"
                 onClick={() => {
-                  window.location.href = "/dashboard";
+                  window.location.reload();
                 }}
                 rightIcon={<ArrowRight className="h-4 w-4" />}
               >
@@ -533,7 +718,7 @@ export function SetupWizard() {
           )}
 
           {/* Navigation buttons */}
-          {step < 6 && (
+          {step < 7 && (
             <div className="mt-8 flex items-center justify-between">
               {step > 1 ? (
                 <Button
@@ -547,7 +732,7 @@ export function SetupWizard() {
                 <div />
               )}
 
-              {step < 5 ? (
+              {step < 6 ? (
                 <Button
                   onClick={() => setStep((s) => s + 1)}
                   disabled={!canProceed()}

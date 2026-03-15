@@ -44,27 +44,64 @@ const sections = [
     ],
   },
   {
-    title: "5. Subscription & Billing",
+    title: "5. BYOK Terms (Bring Your Own Key)",
     content: [
-      "HireAI offers free and paid subscription plans. Paid plans are billed monthly or annually as selected at checkout.",
+      "You are solely responsible for maintaining the validity and security of your own API key when using the BYOK option.",
+      "If your API key is revoked, expired, or reaches its rate limit, your agent will automatically pause until a valid key is provided.",
+      "HireAI is not liable for any costs incurred on your API key. You are responsible for monitoring your API usage and billing with your AI provider.",
+      "You must not use stolen, shared, or unauthorized API keys. Doing so may result in immediate account termination.",
+      "When using BYOK, your email data is processed according to your API provider's terms of service and data policies.",
+    ],
+  },
+  {
+    title: "6. Free API Terms",
+    content: [
+      "The Starter plan includes access to free AI models (Google Gemini, Groq) managed by HireAI at no additional cost.",
+      "Free models may produce less accurate results compared to premium models like Claude or GPT-4. HireAI is not responsible for the quality of free model outputs.",
+      "Availability of free API models depends on third-party providers and may change without notice.",
+      "Free model usage is subject to rate limits imposed by the respective providers. If limits are reached, your agent may temporarily pause.",
+    ],
+  },
+  {
+    title: "7. Subscription & Billing",
+    content: [
+      "HireAI offers paid subscription plans: Starter ($9/month), Professional ($29/month), and Enterprise ($59/month or $39/month with BYOK).",
       "Prices are listed in USD and are subject to change with 30 days notice to existing subscribers.",
       "Payment is processed through secure third-party payment providers. By subscribing, you authorize recurring charges.",
       "You can upgrade, downgrade, or cancel your subscription at any time through your account settings.",
-      "Downgrades take effect at the end of the current billing period. You retain access to paid features until then.",
     ],
   },
   {
-    title: "6. Refund Policy",
+    title: "8. Plan Upgrade/Downgrade Policy",
+    content: [
+      "Upgrades take effect immediately. You will be charged the prorated difference for the remainder of your billing period.",
+      "Downgrades take effect at the end of the current billing period. You retain access to paid features until then.",
+      "When downgrading, email limits and feature access will adjust to your new plan at the start of the next billing period.",
+      "If your email usage exceeds the limits of your new plan, your agent will pause until the next billing cycle or until you upgrade.",
+    ],
+  },
+  {
+    title: "9. Refund Policy",
     content: [
       "We offer a 7-day free trial for new users. No payment is required during the trial period.",
-      "If you cancel within 7 days of your first paid charge, we will issue a full refund.",
-      "After the 7-day window, refunds are issued at our discretion on a case-by-case basis.",
-      "Annual subscriptions may be eligible for a prorated refund if cancelled within 30 days of purchase.",
-      "Refunds are processed within 5-10 business days to the original payment method.",
+      "After the trial period, no refunds will be issued for any paid subscription charges.",
+      "If you cancel during the trial period, you will not be charged.",
+      "Annual subscriptions, when available, follow the same no-refund policy after the trial period.",
+      "In exceptional circumstances (extended outages, billing errors), refunds may be issued at our discretion.",
     ],
   },
   {
-    title: "7. Intellectual Property",
+    title: "10. Data Ownership with Custom Database",
+    content: [
+      "When you connect your own database, all email data, agent configurations, and analytics are stored exclusively in your database.",
+      "HireAI does not retain copies of data stored in your custom database beyond what is necessary for real-time processing.",
+      "You are responsible for the availability, backups, and security of your own database.",
+      "If your database becomes unavailable, your agent will pause automatically. HireAI is not liable for any data loss in your custom database.",
+      "Upon disconnecting your custom database, you retain full ownership of all data stored therein.",
+    ],
+  },
+  {
+    title: "11. Intellectual Property",
     content: [
       "HireAI and its original content, features, and functionality are owned by HireAI and protected by international copyright, trademark, and other intellectual property laws.",
       "Your data remains your property. We do not claim ownership over your emails, configurations, or any content processed through our platform.",
@@ -73,25 +110,24 @@ const sections = [
     ],
   },
   {
-    title: "8. Limitation of Liability",
+    title: "12. Limitation of Liability",
     content: [
       "HireAI is provided \"as is\" without warranties of any kind, whether express or implied.",
       "We do not guarantee that AI-generated replies will be accurate, appropriate, or free from errors. You are responsible for reviewing all AI output.",
       "HireAI shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the service.",
       "Our total liability for any claims arising from these terms shall not exceed the amount you paid to HireAI in the 12 months preceding the claim.",
-      "We are not liable for any losses resulting from unauthorized access to your account due to your failure to secure your credentials.",
     ],
   },
   {
-    title: "9. Service Availability",
+    title: "13. Service Availability",
     content: [
       "We target 99.9% uptime but do not guarantee uninterrupted service. Scheduled maintenance will be announced in advance when possible.",
-      "We are not liable for service disruptions caused by third-party providers, internet outages, or force majeure events.",
+      "We are not liable for service disruptions caused by third-party providers (AI APIs, Google, cloud infrastructure), internet outages, or force majeure events.",
       "In the event of extended downtime exceeding 24 hours, affected paid subscribers may be eligible for service credits.",
     ],
   },
   {
-    title: "10. Termination",
+    title: "14. Termination",
     content: [
       "You may terminate your account at any time by contacting support or through your account settings.",
       "We may suspend or terminate your account if you violate these terms, engage in abusive behavior, or fail to pay subscription fees.",
@@ -100,7 +136,7 @@ const sections = [
     ],
   },
   {
-    title: "11. Governing Law",
+    title: "15. Governing Law",
     content: [
       "These terms are governed by and construed in accordance with applicable laws.",
       "Any disputes arising from these terms shall be resolved through binding arbitration, except where prohibited by law.",
@@ -119,7 +155,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="mt-4 text-text-3">
-            Last updated: January 15, 2025
+            Last updated: March 15, 2026
           </p>
         </div>
 

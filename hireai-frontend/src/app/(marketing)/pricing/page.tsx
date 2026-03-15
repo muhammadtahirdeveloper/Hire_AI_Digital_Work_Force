@@ -14,41 +14,43 @@ const plans = [
   {
     id: "starter",
     name: "Starter",
-    price: 19,
-    model: "claude-haiku-3-5",
-    tagline: "Best for small businesses and freelancers",
+    price: 9,
+    badge: "Best for Testing",
+    model: "Gemini / Groq (Free)",
+    tagline: "Free API models with optional BYOK",
     popular: false,
     features: [
       { text: "500 emails per month", included: true },
+      { text: "Free API (Gemini/Groq) — HireAI managed", included: true },
+      { text: "Optional BYOK any provider", included: true },
       { text: "1 agent (your choice)", included: true },
       { text: "Auto email classification", included: true },
       { text: "Reply draft creation", included: true },
       { text: "Basic analytics dashboard", included: true },
-      { text: "Email templates", included: true },
-      { text: "Spam protection", included: true },
       { text: "Email support", included: true },
       { text: "Multiple Gmail accounts", included: false },
       { text: "WhatsApp alerts", included: false },
       { text: "Custom rules engine", included: false },
-      { text: "Team members", included: false },
+      { text: "Own database", included: false },
     ],
   },
   {
     id: "professional",
     name: "Professional",
-    price: 49,
-    model: "claude-sonnet-4-5",
+    price: 29,
+    badge: "Most Popular",
+    model: "Claude Haiku — HireAI managed",
     tagline: "Best for growing businesses",
     popular: true,
     features: [
-      { text: "Unlimited emails", included: true },
+      { text: "5,000 emails per month", included: true },
+      { text: "Claude Haiku — HireAI managed", included: true },
+      { text: "Optional BYOK any provider", included: true },
       { text: "All 4 agents (switch anytime)", included: true },
-      { text: "Auto email classification", included: true },
       { text: "Auto-send replies (with approval)", included: true },
       { text: "Advanced analytics + charts", included: true },
       { text: "Custom rules engine", included: true },
       { text: "WhatsApp escalation alerts", included: true },
-      { text: "Working hours configuration", included: true },
       { text: "2 Gmail accounts", included: true },
       { text: "Priority email support", included: true },
       { text: "Team members", included: false },
@@ -59,20 +61,22 @@ const plans = [
   {
     id: "enterprise",
     name: "Enterprise",
-    price: 99,
-    model: "claude-sonnet-4-5",
-    tagline: "Best for agencies and enterprises",
+    price: 59,
+    byokPrice: 39,
+    badge: "Full Control",
+    model: "Any model — BYOK option",
+    tagline: "$59/mo managed or $39/mo with BYOK",
     popular: false,
     features: [
       { text: "Everything in Professional", included: true },
+      { text: "$59/mo (HireAI managed key)", included: true },
+      { text: "$39/mo with your own API key (BYOK)", included: true },
+      { text: "Unlimited emails", included: true },
       { text: "Unlimited Gmail accounts", included: true },
       { text: "Team members (up to 5)", included: true },
       { text: "Connect own database", included: true },
       { text: "API access", included: true },
-      { text: "White glove onboarding", included: true },
       { text: "Dedicated support", included: true },
-      { text: "Custom agent features (on request)", included: true },
-      { text: "Monthly improvement review", included: true },
     ],
   },
 ];
@@ -80,10 +84,11 @@ const plans = [
 // --- Comparison table ---
 
 const comparisonFeatures = [
-  { feature: "Monthly emails", starter: "500", professional: "Unlimited", enterprise: "Unlimited" },
+  { feature: "Monthly emails", starter: "500", professional: "5,000", enterprise: "Unlimited" },
   { feature: "Gmail accounts", starter: "1", professional: "2", enterprise: "Unlimited" },
   { feature: "Agent types", starter: "1", professional: "All 4", enterprise: "All 4" },
-  { feature: "AI model", starter: "Haiku 3.5", professional: "Sonnet 4.5", enterprise: "Sonnet 4.5" },
+  { feature: "AI model", starter: "Gemini/Groq (Free)", professional: "Claude Haiku", enterprise: "Any (BYOK)" },
+  { feature: "BYOK option", starter: true, professional: true, enterprise: true },
   { feature: "Email classification", starter: true, professional: true, enterprise: true },
   { feature: "Reply drafts", starter: true, professional: true, enterprise: true },
   { feature: "Auto-send replies", starter: false, professional: true, enterprise: true },
@@ -91,13 +96,11 @@ const comparisonFeatures = [
   { feature: "Custom rules engine", starter: false, professional: true, enterprise: true },
   { feature: "WhatsApp alerts", starter: false, professional: true, enterprise: true },
   { feature: "Working hours config", starter: false, professional: true, enterprise: true },
-  { feature: "Email templates", starter: true, professional: true, enterprise: true },
-  { feature: "Spam protection", starter: true, professional: true, enterprise: true },
   { feature: "Team members", starter: false, professional: false, enterprise: "Up to 5" },
   { feature: "Own database", starter: false, professional: false, enterprise: true },
   { feature: "API access", starter: false, professional: false, enterprise: true },
-  { feature: "Custom agent features", starter: false, professional: false, enterprise: true },
   { feature: "Support", starter: "Email", professional: "Priority", enterprise: "Dedicated" },
+  { feature: "Price", starter: "$9/mo", professional: "$29/mo", enterprise: "$59/$39/mo" },
 ];
 
 // --- FAQ ---
@@ -108,20 +111,20 @@ const faqs = [
     a: "Your free trial lasts 7 days from the date you sign up. You'll receive a reminder email 2 days before it ends. No credit card is required to start.",
   },
   {
-    q: "What payment methods are accepted?",
-    a: "We currently accept bank transfers and mobile payments. Stripe integration for credit/debit cards is coming soon. Contact us for payment arrangements.",
+    q: "What is BYOK (Bring Your Own Key)?",
+    a: "BYOK lets you use your own API key from providers like OpenAI, Claude, Gemini, or Groq. Your key is encrypted and never shared. Enterprise BYOK pricing is $39/mo instead of $59/mo.",
+  },
+  {
+    q: "What are the free API models?",
+    a: "The Starter plan includes Google Gemini and Groq models at no extra cost — managed by HireAI. These models may produce less accurate results than Claude or GPT-4 but are great for testing.",
   },
   {
     q: "Can I switch plans?",
-    a: "Yes, you can upgrade or downgrade your plan anytime before your next billing date. Changes take effect immediately.",
-  },
-  {
-    q: "What happens if I cancel?",
-    a: "Your agent continues running until the end of your current billing period. After that, it pauses but your data and configuration are preserved for 90 days.",
+    a: "Yes, you can upgrade or downgrade your plan anytime. Changes take effect immediately. When downgrading, you retain access until the end of your current billing period.",
   },
   {
     q: "Do you offer refunds?",
-    a: "We offer a full refund within the first 7 days of any paid plan if you're not satisfied. After that, you can cancel anytime but won't receive a refund for the current period.",
+    a: "We offer a full refund within the first 7 days of any paid plan. After that, you can cancel anytime but won't receive a refund for the current period.",
   },
   {
     q: "Is there a discount for annual payment?",
@@ -167,7 +170,7 @@ export default function PricingPage() {
           Start with a 7-day FREE trial
         </p>
         <p className="mt-2 text-sm text-text-3">
-          Full access to all features. claude-sonnet-4-5 model. No credit card required.
+          Full access to all features. No credit card required.
         </p>
         <Link href="/signup" className="mt-4 inline-block">
           <Button size="lg">
@@ -195,7 +198,12 @@ export default function PricingPage() {
               </Badge>
             )}
             <CardBody className="p-6">
-              <p className="text-lg font-bold text-text">{plan.name}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-lg font-bold text-text">{plan.name}</p>
+                <span className="rounded-full bg-background-1 border border-border px-2 py-0.5 text-[10px] font-medium text-text-3">
+                  {plan.badge}
+                </span>
+              </div>
               <p className="mt-1 text-sm text-text-3">{plan.tagline}</p>
 
               <div className="mt-4">
@@ -254,13 +262,13 @@ export default function PricingPage() {
                   Feature
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-semibold text-text-3">
-                  Starter
+                  Starter ($9)
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-semibold text-navy">
-                  Professional
+                  Professional ($29)
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-semibold text-text-3">
-                  Enterprise
+                  Enterprise ($59/$39)
                 </th>
               </tr>
             </thead>

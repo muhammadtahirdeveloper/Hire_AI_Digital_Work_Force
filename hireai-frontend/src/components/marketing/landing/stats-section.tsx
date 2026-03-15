@@ -1,36 +1,41 @@
 "use client";
 
+import { Rocket, Sparkles, Tag } from "lucide-react";
 import { ScrollReveal } from "./scroll-reveal";
-import { AnimatedCounter } from "./animated-counter";
-
-const stats = [
-  { value: 50000, suffix: "+", label: "Emails Processed" },
-  { value: 4, suffix: "", label: "Specialized Agents" },
-  { value: 4, suffix: "", label: "Industries" },
-  { value: 99.9, suffix: "%", label: "Platform Uptime" },
-];
 
 export function StatsSection() {
   return (
     <section className="border-y border-border bg-background-1">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <ScrollReveal>
-          <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
-            {stats.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="text-3xl font-bold text-text sm:text-4xl">
-                  {stat.value === 99.9 ? (
-                    <span>99.9{stat.suffix}</span>
-                  ) : (
-                    <AnimatedCounter
-                      target={stat.value}
-                      suffix={stat.suffix}
-                    />
-                  )}
-                </p>
-                <p className="mt-1 text-sm text-text-3">{stat.label}</p>
-              </div>
-            ))}
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <Rocket className="h-6 w-6 text-navy" />
+              <p className="text-2xl font-bold text-text sm:text-3xl">
+                Now in Beta
+              </p>
+              <p className="text-sm text-text-3">
+                Early Bird Pricing Active
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <Sparkles className="h-6 w-6 text-navy" />
+              <p className="text-2xl font-bold text-text sm:text-3xl">
+                Be Among Our First Users
+              </p>
+              <p className="text-sm text-text-3">
+                Shape the product with your feedback
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <Tag className="h-6 w-6 text-navy" />
+              <p className="text-2xl font-bold text-text sm:text-3xl">
+                Save up to 70%
+              </p>
+              <p className="text-sm text-text-3">
+                Limited time on all plans
+              </p>
+            </div>
           </div>
         </ScrollReveal>
       </div>

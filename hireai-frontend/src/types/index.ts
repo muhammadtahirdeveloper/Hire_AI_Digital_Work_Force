@@ -53,6 +53,7 @@ export interface DashboardStats {
   auto_replied_yesterday: number;
   agent_uptime_hours: number;
   emails_in_queue: number;
+  emails_this_month?: number;
 }
 
 /**

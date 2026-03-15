@@ -14,7 +14,11 @@ import logging
 import os
 import base64
 import uuid
+import smtplib
+import ssl
 from datetime import datetime, timedelta, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import bcrypt
 import jwt
@@ -116,9 +120,79 @@ class GoogleLoginRequest(BaseModel):
     google_id: str = ""
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class SendVerificationRequest(BaseModel):
+    email: str
+
+
+class CompleteSetupRequest(BaseModel):
+    email: str
+
+
 # ---------------------------------------------------------------------------
 # Helpers — users table auto-creation + JWT
 # ---------------------------------------------------------------------------
+
+
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "hireaidigitalemployee@gmail.com")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://hireai-frontend.vercel.app")
+
+
+def _send_email(to_email: str, subject: str, html_body: str):
+    """Send an email via Gmail SMTP. Fails silently if not configured."""
+    if not SMTP_PASSWORD:
+        logger.warning("SMTP_PASSWORD not set — skipping email send to %s", to_email)
+        return
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f"HireAI <{SMTP_EMAIL}>"
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(html_body, "html"))
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+        logger.info("Email sent to %s: %s", to_email, subject)
+    except Exception as exc:
+        logger.error("Failed to send email to %s: %s", to_email, exc)
+
+
+def _build_verification_email(name: str, token: str) -> str:
+    link = f"{FRONTEND_URL}/verify-email?token={token}"
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;">
+      <h2 style="color:#1D4ED8;margin:0 0 8px;">HireAI</h2>
+      <p>Hi {name},</p>
+      <p>Thanks for signing up! Please verify your email address to get started.</p>
+      <a href="{link}" style="display:inline-block;margin:24px 0;padding:12px 28px;background:#1D4ED8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Verify Email</a>
+      <p style="font-size:13px;color:#6b7280;">This link expires in 24 hours.</p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+      <p style="font-size:12px;color:#9ca3af;">If you didn't create an account, you can ignore this email.</p>
+    </div>"""
+
+
+def _build_reset_email(name: str, token: str) -> str:
+    link = f"{FRONTEND_URL}/reset-password?token={token}"
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;">
+      <h2 style="color:#1D4ED8;margin:0 0 8px;">HireAI</h2>
+      <p>Hi {name},</p>
+      <p>We received a request to reset your password. Click the button below to set a new password.</p>
+      <a href="{link}" style="display:inline-block;margin:24px 0;padding:12px 28px;background:#1D4ED8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Reset Password</a>
+      <p style="font-size:13px;color:#6b7280;">This link expires in 1 hour.</p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+      <p style="font-size:12px;color:#9ca3af;">If you didn't request a password reset, you can ignore this email.</p>
+    </div>"""
 
 
 def _ensure_users_table(db):
@@ -137,9 +211,26 @@ def _ensure_users_table(db):
             is_active BOOLEAN DEFAULT true,
             setup_complete BOOLEAN DEFAULT false,
             trial_end_date TIMESTAMP,
-            created_at TIMESTAMP DEFAULT NOW()
+            created_at TIMESTAMP DEFAULT NOW(),
+            email_verified BOOLEAN DEFAULT false,
+            verification_token TEXT,
+            verification_token_expires TIMESTAMP,
+            reset_token TEXT,
+            reset_token_expires TIMESTAMP
         )
     """))
+    # Add columns for existing tables
+    for col in [
+        "email_verified BOOLEAN DEFAULT false",
+        "verification_token TEXT",
+        "verification_token_expires TIMESTAMP",
+        "reset_token TEXT",
+        "reset_token_expires TIMESTAMP",
+    ]:
+        try:
+            db.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col}"))
+        except Exception:
+            pass
     db.commit()
 
 
@@ -192,11 +283,15 @@ async def register(body: RegisterRequest):
 
             user_id = str(uuid.uuid4())
             trial_end = datetime.now(timezone.utc) + timedelta(days=7)
+            verification_token = str(uuid.uuid4())
+            verification_expires = datetime.now(timezone.utc) + timedelta(hours=24)
 
             db.execute(
                 text("""
-                    INSERT INTO users (id, email, name, password_hash, provider, tier, trial_end_date)
-                    VALUES (:id, :email, :name, :password_hash, 'credentials', 'trial', :trial_end)
+                    INSERT INTO users (id, email, name, password_hash, provider, tier, trial_end_date,
+                                       email_verified, verification_token, verification_token_expires)
+                    VALUES (:id, :email, :name, :password_hash, 'credentials', 'trial', :trial_end,
+                            false, :vtoken, :vexpires)
                 """),
                 {
                     "id": user_id,
@@ -204,9 +299,15 @@ async def register(body: RegisterRequest):
                     "name": body.name or body.email.split("@")[0],
                     "password_hash": _hash_password(body.password),
                     "trial_end": trial_end,
+                    "vtoken": verification_token,
+                    "vexpires": verification_expires,
                 },
             )
             db.commit()
+
+            user_name = body.name or body.email.split("@")[0]
+            html = _build_verification_email(user_name, verification_token)
+            _send_email(body.email.lower(), "Verify your HireAI email address", html)
 
             token = _create_jwt(user_id, body.email.lower(), body.name)
 
@@ -248,7 +349,7 @@ async def login(body: LoginRequest):
             row = db.execute(
                 text("""
                     SELECT id, email, name, password_hash, image, tier, agent_type,
-                           is_active, setup_complete, trial_end_date
+                           is_active, setup_complete, trial_end_date, email_verified
                     FROM users WHERE email = :email
                 """),
                 {"email": body.email.lower()},
@@ -265,6 +366,13 @@ async def login(body: LoginRequest):
 
             if not _verify_password(body.password, row[3]):
                 raise HTTPException(status_code=401, detail="Invalid email or password")
+
+            email_verified = row[10] if len(row) > 10 and row[10] is not None else False
+            if not email_verified:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Please verify your email first",
+                )
 
             token = _create_jwt(row[0], row[1], row[2])
 
@@ -512,3 +620,222 @@ async def google_auth_callback(
         "user_id": user_id,
         "scopes": token_data["scopes"],
     })
+
+
+# ============================================================================
+# POST /auth/send-verification-email — Resend verification email
+# ============================================================================
+
+
+@router.post("/send-verification-email")
+async def send_verification_email(body: SendVerificationRequest):
+    """Resend the email verification link."""
+    if not body.email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            row = db.execute(
+                text("SELECT id, name, email_verified FROM users WHERE email = :email"),
+                {"email": body.email.lower()},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="User not found")
+            if row[2]:
+                return _ok({"message": "Email is already verified"})
+            verification_token = str(uuid.uuid4())
+            verification_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+            db.execute(
+                text("""
+                    UPDATE users SET verification_token = :token, verification_token_expires = :expires
+                    WHERE email = :email
+                """),
+                {"token": verification_token, "expires": verification_expires, "email": body.email.lower()},
+            )
+            db.commit()
+            user_name = row[1] or body.email.split("@")[0]
+            html = _build_verification_email(user_name, verification_token)
+            _send_email(body.email.lower(), "Verify your HireAI email address", html)
+            return _ok({"message": "Verification email sent"})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Send verification email failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# GET /auth/verify-email — Verify email with token
+# ============================================================================
+
+
+@router.get("/verify-email")
+async def verify_email(token: str = Query(...)):
+    """Verify a user's email address using the token."""
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            row = db.execute(
+                text("SELECT id, email, verification_token_expires, email_verified FROM users WHERE verification_token = :token"),
+                {"token": token},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail="Invalid verification token")
+            if row[3]:
+                return _ok({"message": "Email is already verified"})
+            if row[2] and datetime.now(timezone.utc) > row[2].replace(tzinfo=timezone.utc):
+                raise HTTPException(status_code=400, detail="Token expired. Please request a new one.")
+            db.execute(
+                text("UPDATE users SET email_verified = true, verification_token = NULL, verification_token_expires = NULL WHERE id = :uid"),
+                {"uid": row[0]},
+            )
+            db.commit()
+            logger.info("Email verified for: %s", row[1])
+            return _ok({"message": "Email verified successfully"})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Verify email failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# POST /auth/forgot-password — Send password reset email
+# ============================================================================
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest):
+    """Send a password reset email."""
+    if not body.email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            row = db.execute(
+                text("SELECT id, name, provider FROM users WHERE email = :email"),
+                {"email": body.email.lower()},
+            ).fetchone()
+            if not row:
+                return _ok({"message": "If an account exists, a reset link has been sent."})
+            if row[2] == "google":
+                return _ok({"message": "This account uses Google sign-in. Please log in with Google."})
+            reset_token = str(uuid.uuid4())
+            reset_expires = datetime.now(timezone.utc) + timedelta(hours=1)
+            db.execute(
+                text("UPDATE users SET reset_token = :token, reset_token_expires = :expires WHERE email = :email"),
+                {"token": reset_token, "expires": reset_expires, "email": body.email.lower()},
+            )
+            db.commit()
+            html = _build_reset_email(row[1] or body.email.split("@")[0], reset_token)
+            _send_email(body.email.lower(), "Reset your HireAI password", html)
+            return _ok({"message": "If an account exists, a reset link has been sent."})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Forgot password failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# POST /auth/reset-password — Reset password with token
+# ============================================================================
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    """Reset password using token from email."""
+    if not body.token or not body.new_password:
+        raise HTTPException(status_code=400, detail="Token and new password required")
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            row = db.execute(
+                text("SELECT id, email, reset_token_expires FROM users WHERE reset_token = :token"),
+                {"token": body.token},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+            if row[2] and datetime.now(timezone.utc) > row[2].replace(tzinfo=timezone.utc):
+                raise HTTPException(status_code=400, detail="Reset token expired. Please request a new one.")
+            db.execute(
+                text("UPDATE users SET password_hash = :pw, reset_token = NULL, reset_token_expires = NULL WHERE id = :uid"),
+                {"pw": _hash_password(body.new_password), "uid": row[0]},
+            )
+            db.commit()
+            logger.info("Password reset for: %s", row[1])
+            return _ok({"message": "Password reset successfully"})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Reset password failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# POST /auth/complete-setup — Mark setup as complete
+# ============================================================================
+
+
+@router.post("/complete-setup")
+async def complete_setup(body: CompleteSetupRequest):
+    """Mark a user's setup as complete."""
+    if not body.email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            result = db.execute(
+                text("UPDATE users SET setup_complete = true WHERE email = :email"),
+                {"email": body.email.lower()},
+            )
+            db.commit()
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="User not found")
+            return _ok({"message": "Setup complete", "setup_complete": True})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Complete setup failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# GET /auth/setup-status/{email} — Get setup completion status
+# ============================================================================
+
+
+@router.get("/setup-status/{email}")
+async def get_setup_status(email: str):
+    """Get setup completion status."""
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            row = db.execute(
+                text("SELECT setup_complete FROM users WHERE email = :email"),
+                {"email": email.lower()},
+            ).fetchone()
+            return _ok({"setup_complete": row[0] if row and row[0] else False})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Get setup status failed: %s", exc)
+        return _ok({"setup_complete": False})
