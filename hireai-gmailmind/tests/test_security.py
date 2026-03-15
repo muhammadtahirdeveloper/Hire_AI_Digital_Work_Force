@@ -273,18 +273,23 @@ class TestAPIKeyManager:
 # ============================================================================
 
 
+_fastapi_available = True
+try:
+    from fastapi.testclient import TestClient
+except ImportError:
+    _fastapi_available = False
+
+
+@pytest.mark.skipif(not _fastapi_available, reason="fastapi not installed")
 class TestSecurityHeaders:
     """Test security headers in HTTP responses."""
 
     def test_security_headers_present(self):
         """Test that security headers are present in responses."""
-        from fastapi.testclient import TestClient
         from api.main import app
-
         client = TestClient(app)
         response = client.get("/health")
 
-        # Check for security headers (case-insensitive)
         headers_lower = {k.lower(): v for k, v in response.headers.items()}
 
         assert "x-content-type-options" in headers_lower
@@ -297,18 +302,14 @@ class TestSecurityHeaders:
 
     def test_health_endpoint_public(self):
         """Test that health endpoint is publicly accessible."""
-        from fastapi.testclient import TestClient
         from api.main import app
-
         client = TestClient(app)
         response = client.get("/health")
         assert response.status_code == 200
 
     def test_security_status_public(self):
         """Test that security status page is publicly accessible."""
-        from fastapi.testclient import TestClient
         from api.main import app
-
         client = TestClient(app)
         response = client.get("/security-status")
         assert response.status_code == 200
@@ -316,24 +317,16 @@ class TestSecurityHeaders:
 
     def test_protected_endpoint_requires_key(self):
         """Test that protected endpoints require API key."""
-        from fastapi.testclient import TestClient
         from api.main import app
-
         client = TestClient(app)
         response = client.get("/platform/stats")
-
-        # Should be 401 (unauthorized) or 403 (forbidden)
         assert response.status_code in [401, 403]
 
     def test_server_header_removed(self):
         """Test that server header is removed (hides version info)."""
-        from fastapi.testclient import TestClient
         from api.main import app
-
         client = TestClient(app)
         response = client.get("/health")
-
-        # Server header should be removed or not contain version info
         server_header = response.headers.get("server", "")
         assert "uvicorn" not in server_header.lower() or server_header == ""
 
@@ -343,29 +336,22 @@ class TestSecurityHeaders:
 # ============================================================================
 
 
+@pytest.mark.skipif(not _fastapi_available, reason="fastapi not installed")
 class TestSecurityIntegration:
     """Integration tests for security features."""
 
     def test_docs_available_in_dev(self):
         """Test that API docs are available in development."""
-        from fastapi.testclient import TestClient
         from api.main import app
-
         client = TestClient(app)
         response = client.get("/docs")
-
-        # Should be accessible in development
-        assert response.status_code in [200, 404]  # 404 if disabled in production
+        assert response.status_code in [200, 404]
 
     def test_cors_headers_present(self):
         """Test that CORS headers are configured."""
-        from fastapi.testclient import TestClient
         from api.main import app
-
         client = TestClient(app)
         response = client.options("/health", headers={"Origin": "http://localhost:3000"})
-
-        # CORS headers should be present
         assert "access-control-allow-origin" in {k.lower() for k in response.headers.keys()}
 
 

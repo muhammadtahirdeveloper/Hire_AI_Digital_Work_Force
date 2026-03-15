@@ -1,4 +1,4 @@
-"""Tests for the Phase 2 Orchestrator system.
+"""Tests for the Phase 2 Orchestrator system + Phase 5 AI Router integration.
 
 Covers:
   - AgentRegistry registration and lookup
@@ -6,15 +6,24 @@ Covers:
   - GeneralAgent tool sets and classification
   - HRAgent industry, tiers, and classification
   - GmailMindOrchestrator initialisation
+  - get_agent_for_user (Phase 5)
+  - BaseAgent.process_email via mocked AIRouter (Phase 5)
 """
 
+import asyncio
 import pytest
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from agents.general.general_agent import GeneralAgent
 from agents.hr.hr_agent import HRAgent
 from orchestrator.agent_registry import AgentRegistry
 from orchestrator.feature_gates import FeatureGate
 from orchestrator.orchestrator import GmailMindOrchestrator
+
+
+def _run(coro):
+    """Run an async coroutine synchronously."""
+    return asyncio.get_event_loop().run_until_complete(coro)
 
 
 # ============================================================================
@@ -262,3 +271,180 @@ class TestOrchestrator:
         industries = o.registry.list_industries()
         assert "general" in industries
         assert "hr" in industries
+
+
+# ============================================================================
+# Phase 5 — get_agent_for_user
+# ============================================================================
+
+
+class TestGetAgentForUser:
+    """Test orchestrator.get_agent_for_user routes users to the correct agent."""
+
+    @patch.object(GmailMindOrchestrator, "__init__", lambda self: None)
+    def test_general_user_gets_general_agent(self):
+        o = GmailMindOrchestrator()
+        o.registry = AgentRegistry()
+        o.registry.register("general", GeneralAgent)
+        o.registry.register("hr", HRAgent)
+        o.router = MagicMock()
+        o.router.get_user_industry.return_value = "general"
+        o.gates = MagicMock()
+
+        agent = o.get_agent_for_user("user_001")
+        assert isinstance(agent, GeneralAgent)
+
+    @patch.object(GmailMindOrchestrator, "__init__", lambda self: None)
+    def test_hr_user_gets_hr_agent(self):
+        o = GmailMindOrchestrator()
+        o.registry = AgentRegistry()
+        o.registry.register("general", GeneralAgent)
+        o.registry.register("hr", HRAgent)
+        o.router = MagicMock()
+        o.router.get_user_industry.return_value = "hr"
+        o.gates = MagicMock()
+
+        agent = o.get_agent_for_user("user_002")
+        assert isinstance(agent, HRAgent)
+
+    @patch.object(GmailMindOrchestrator, "__init__", lambda self: None)
+    def test_unknown_industry_falls_back_to_general(self):
+        o = GmailMindOrchestrator()
+        o.registry = AgentRegistry()
+        o.registry.register("general", GeneralAgent)
+        o.router = MagicMock()
+        o.router.get_user_industry.return_value = "unknown_industry"
+        o.gates = MagicMock()
+
+        agent = o.get_agent_for_user("user_003")
+        assert isinstance(agent, GeneralAgent)
+
+    def test_full_orchestrator_get_agent(self):
+        """Test via the real orchestrator init (uses default routing)."""
+        o = GmailMindOrchestrator()
+        with patch.object(o.router, "get_user_industry", return_value="general"):
+            agent = o.get_agent_for_user("user_test")
+            assert isinstance(agent, GeneralAgent)
+            assert hasattr(agent, "ai_router")
+
+
+# ============================================================================
+# Phase 5 — BaseAgent.process_email with mocked AIRouter
+# ============================================================================
+
+
+class TestProcessEmail:
+    """Test BaseAgent.process_email() with a mocked AIRouter.generate()."""
+
+    def test_process_email_returns_decision(self):
+        agent = GeneralAgent()
+        mock_result = {
+            "content": "ACTION: AUTO_REPLY\nREPLY: Thanks for reaching out!\nREASON: Standard inquiry.",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash",
+        }
+        agent.ai_router.generate = AsyncMock(return_value=mock_result)
+
+        email = {"subject": "Inquiry", "body": "Tell me about your services."}
+        result = _run(agent.process_email("user_1", email))
+
+        assert result["action"] == "AUTO_REPLY"
+        assert result["provider"] == "gemini"
+        assert result["model"] == "gemini-1.5-flash"
+        assert "category" in result
+
+    def test_process_email_draft_action(self):
+        agent = GeneralAgent()
+        mock_result = {
+            "content": "ACTION: DRAFT_REPLY\nREPLY: I'll look into this and get back to you.",
+            "provider": "groq",
+            "model": "llama-3.3-70b-versatile",
+        }
+        agent.ai_router.generate = AsyncMock(return_value=mock_result)
+
+        email = {"subject": "Complex question", "body": "Can you explain your pricing tiers?"}
+        result = _run(agent.process_email("user_2", email))
+
+        assert result["action"] == "DRAFT_REPLY"
+        assert result["provider"] == "groq"
+
+    def test_process_email_escalate_action(self):
+        agent = GeneralAgent()
+        mock_result = {
+            "content": "ACTION: ESCALATE\nREASON: Legal threat detected.",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash",
+        }
+        agent.ai_router.generate = AsyncMock(return_value=mock_result)
+
+        email = {"subject": "Legal Notice", "body": "I am contacting my attorney."}
+        result = _run(agent.process_email("user_3", email))
+
+        assert result["action"] == "ESCALATE"
+
+    def test_process_email_label_archive(self):
+        agent = GeneralAgent()
+        mock_result = {
+            "content": "ACTION: LABEL_ARCHIVE\nREASON: Newsletter, no reply needed.",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash",
+        }
+        agent.ai_router.generate = AsyncMock(return_value=mock_result)
+
+        email = {"subject": "Weekly Newsletter", "body": "Unsubscribe to stop."}
+        result = _run(agent.process_email("user_4", email))
+
+        assert result["action"] == "LABEL_ARCHIVE"
+        assert result["category"] == "newsletter"
+
+    def test_process_email_hr_agent_via_base(self):
+        """HRAgent has its own process_email; verify base class version works too."""
+        from agents.base_agent import BaseAgent
+
+        agent = HRAgent()
+        mock_result = {
+            "content": "ACTION: DRAFT_REPLY\nREPLY: We received your application.",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash",
+        }
+        agent.ai_router.generate = AsyncMock(return_value=mock_result)
+
+        email = {
+            "subject": "Application for Developer Role",
+            "body": "Please find my CV attached.",
+        }
+        # Call the BaseAgent version directly (HR overrides with its own)
+        result = _run(BaseAgent.process_email(agent, "user_5", email))
+
+        assert result["action"] == "DRAFT_REPLY"
+        assert result["category"] == "cv_application"
+
+    def test_hr_agent_own_process_email(self):
+        """HRAgent's own sync pipeline handles CV applications."""
+        agent = HRAgent()
+        email = {
+            "subject": "Application for Developer Role",
+            "body": "Please find my CV attached.",
+            "sender": {"email": "applicant@test.com", "name": "Test"},
+        }
+        config = {"business_name": "TestCo"}
+        result = agent.process_email(email, config, "tier2", "user_hr")
+
+        assert result["category"] == "cv_application"
+        assert "action" in result
+
+    def test_process_email_passes_user_id_to_router(self):
+        agent = GeneralAgent()
+        mock_result = {
+            "content": "ACTION: AUTO_REPLY\nREPLY: Hello!",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash",
+        }
+        agent.ai_router.generate = AsyncMock(return_value=mock_result)
+
+        email = {"subject": "Hi", "body": "Hello there."}
+        _run(agent.process_email("user_specific_42", email))
+
+        # Verify the router was called with the correct user_id
+        call_kwargs = agent.ai_router.generate.call_args
+        assert call_kwargs.kwargs.get("user_id") == "user_specific_42"
