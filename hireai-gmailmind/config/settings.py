@@ -13,15 +13,14 @@ GOOGLE_REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
     "https://hireaidigitalworkforce-production.up.railway.app/auth/google/callback",
 )
-GMAIL_SCOPES = os.getenv(
-    "GMAIL_SCOPES",
-    "https://www.googleapis.com/auth/gmail.readonly,"
-    "https://www.googleapis.com/auth/gmail.send,"
-    "https://www.googleapis.com/auth/gmail.modify,"
-    "openid,"
-    "https://www.googleapis.com/auth/userinfo.email,"
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-).split(",")
+]
 
 # --- OpenAI ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

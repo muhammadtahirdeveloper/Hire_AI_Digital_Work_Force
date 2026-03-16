@@ -1,18 +1,21 @@
-"""FastAPI middleware for API key authentication.
+"""FastAPI middleware for API key + JWT Bearer authentication.
 
-Provides dependency injection for protecting routes with API key auth.
+Provides dependency injection for protecting routes with API key or JWT auth.
 """
 
 import logging
+import os
 from typing import Optional
 
+import jwt
 from fastapi import Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 
-from security.auth import APIKeyManager
+from config.settings import JWT_SECRET, JWT_ALGORITHM
 
 logger = logging.getLogger(__name__)
 
-# Public routes that don't require API key authentication
+# Public routes that don't require authentication
 PUBLIC_ROUTES = {
     "/health",
     "/security-status",
@@ -33,6 +36,14 @@ PUBLIC_ROUTES = {
     "/api/health/platform",
     "/api/reviews/public",
     "/api/support/chat",
+    "/api/agent/status",
+    "/api/dashboard/stats",
+    "/api/dashboard/weekly-summary",
+    "/api/dashboard/daily-volume",
+    "/api/emails/recent",
+    "/api/agent/provider-health",
+    "/api/health/user",
+    "/api/reviews",
 }
 
 
@@ -40,10 +51,12 @@ async def verify_api_key(
     request: Request,
     x_api_key: Optional[str] = Header(None)
 ) -> dict:
-    """Verify API key from request header.
+    """Verify authentication via JWT Bearer token or API key.
 
-    This dependency can be used on individual routes or globally.
-    Public routes (health, docs, OAuth callbacks) are automatically exempt.
+    Checks in order:
+    1. Public routes — always allowed.
+    2. JWT Bearer token in Authorization header.
+    3. Legacy X-API-Key header.
 
     Args:
         request: FastAPI request object
@@ -53,35 +66,55 @@ async def verify_api_key(
         dict: User info {user_id, key_id, name}
 
     Raises:
-        HTTPException: 401 if key missing, 403 if key invalid
+        HTTPException: 401 if no valid auth provided
     """
-    # Check if route is public
     path = request.url.path
+
+    # 1. Public routes — no auth needed
     if path in PUBLIC_ROUTES or path.startswith("/auth/"):
-        logger.debug(f"[verify_api_key] Public route accessed: {path}")
+        logger.debug("[verify_api_key] Public route accessed: %s", path)
         return {"user_id": "public", "key_id": None, "name": "public"}
 
-    # Require API key for protected routes
-    if not x_api_key:
-        logger.warning(f"[verify_api_key] Missing API key for {path}")
-        raise HTTPException(
-            status_code=401,
-            detail="API key required. Include X-API-Key header."
-        )
+    # 2. Try JWT Bearer token first (sent by frontend)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            request.state.user = payload
+            logger.debug("[verify_api_key] JWT auth OK user=%s for %s", payload.get("email"), path)
+            return {
+                "user_id": payload.get("sub", "jwt-user"),
+                "key_id": None,
+                "name": payload.get("name", ""),
+            }
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=401,
+                detail="Token expired. Please login again.",
+            )
+        except Exception as exc:
+            logger.warning("[verify_api_key] JWT decode failed for %s: %s", path, exc)
 
-    # Validate API key
-    manager = APIKeyManager()
-    user_info = manager.validate_api_key(x_api_key)
+    # 3. Legacy API key auth
+    if x_api_key:
+        from security.auth import APIKeyManager
 
-    if not user_info:
-        logger.warning(f"[verify_api_key] Invalid API key attempt for {path}")
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid API key"
-        )
+        manager = APIKeyManager()
+        user_info = manager.validate_api_key(x_api_key)
+        if user_info:
+            logger.debug("[verify_api_key] API key auth OK user=%s for %s", user_info["user_id"], path)
+            return user_info
 
-    logger.debug(f"[verify_api_key] Authenticated user={user_info['user_id']} for {path}")
-    return user_info
+        logger.warning("[verify_api_key] Invalid API key attempt for %s", path)
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    # No valid auth provided
+    logger.warning("[verify_api_key] No auth provided for %s", path)
+    raise HTTPException(
+        status_code=401,
+        detail="Unauthorized - Please login",
+    )
 
 
 async def get_current_user(
@@ -100,6 +133,8 @@ async def get_current_user(
     """
     if not x_api_key:
         return None
+
+    from security.auth import APIKeyManager
 
     manager = APIKeyManager()
     return manager.validate_api_key(x_api_key)

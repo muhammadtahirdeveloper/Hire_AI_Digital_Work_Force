@@ -621,18 +621,20 @@ async def google_auth_callback(
     credentials = flow.credentials
 
     # Validate that required Gmail scopes are present (subset check).
-    # Google may return extra scopes (openid, userinfo.email, userinfo.profile)
-    # which is fine — we only require our Gmail scopes.
+    # Extra scopes like openid, userinfo.email, userinfo.profile are fine.
     required_scopes = {
+        "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/gmail.modify",
     }
-    token_scopes = set(credentials.scopes or [])
-    if token_scopes and not required_scopes.issubset(token_scopes):
-        missing = required_scopes - token_scopes
-        logger.warning("OAuth callback: missing required scopes: %s (got: %s)", missing, token_scopes)
-        # Don't fail — user may have partially granted. Log and continue.
+    granted_scopes = set(credentials.scopes or [])
+    if granted_scopes and not required_scopes.issubset(granted_scopes):
+        missing = required_scopes - granted_scopes
+        logger.error("OAuth callback: missing required scopes: %s (got: %s)", missing, granted_scopes)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required Gmail permissions: {missing}",
+        )
 
     token_data = {
         "token": credentials.token,
