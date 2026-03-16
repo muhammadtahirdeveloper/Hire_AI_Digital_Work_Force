@@ -22,7 +22,7 @@ from api.routes.real_estate_routes import router as real_estate_router
 from api.routes.ecommerce_routes import router as ecommerce_router
 from api.routes.dashboard_routes import router as dashboard_router
 from api.routes.frontend_routes import router as frontend_router
-from config.settings import APP_ENV, CORS_ORIGINS, DEBUG
+from config.settings import APP_ENV, DEBUG
 from security.headers import SecurityHeadersMiddleware
 from security.middleware import verify_api_key
 
@@ -47,20 +47,30 @@ app = FastAPI(
 )
 
 # ============================================================================
-# Middleware (order matters: applied in reverse order)
+# Middleware (order matters: CORS must be outermost to handle preflight)
 # ============================================================================
 
-# 1. Security Headers (applied last, wraps response)
+# 1. CORS — added first so it becomes outermost after subsequent add_middleware calls
+#    In Starlette, each add_middleware wraps the previous, so the LAST added is outermost.
+#    We add CORS last to ensure it intercepts OPTIONS preflight before anything else.
+
+# 2. Security Headers (inner middleware, adds headers to responses)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# 2. CORS (applied second, handles cross-origin requests)
+# 3. CORS (outermost — handles preflight OPTIONS before other middleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=[
+        "https://hireai-frontend.vercel.app",
+        "https://hireai-frontend-*.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:3001",
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],  # Restrict to needed methods
-    allow_headers=["X-API-Key", "Content-Type", "Authorization"],  # Explicit headers
-    expose_headers=["X-RateLimit-Remaining", "X-RateLimit-Reset"],  # Rate limit info
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 # ============================================================================

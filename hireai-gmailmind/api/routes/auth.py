@@ -925,6 +925,21 @@ def _ensure_user_agents_table(db):
     db.commit()
 
 
+@router.options("/setup")
+async def setup_options():
+    return {}
+
+
+@router.options("/mark-complete")
+async def mark_complete_options():
+    return {}
+
+
+@router.options("/complete-setup")
+async def complete_setup_options():
+    return {}
+
+
 @router.post("/setup")
 async def save_setup(body: SetupRequest):
     """Save all setup data, create agent record, and mark setup as complete.
@@ -932,6 +947,7 @@ async def save_setup(body: SetupRequest):
     Never returns an error — the wizard must always be allowed to finish.
     """
     email = (body.email or "").strip().lower() or "unknown@user.com"
+    logger.info("POST /auth/setup called for email=%s", email)
 
     try:
         db = SessionLocal()
