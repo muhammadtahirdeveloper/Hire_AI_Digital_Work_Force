@@ -1,7 +1,8 @@
 import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { api } from "./api";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -19,11 +20,16 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
 
         try {
-          const res = await api.post("/auth/login", {
-            email: credentials.email,
-            password: credentials.password,
+          const res = await fetch(`${API_URL}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: credentials.email,
+              password: credentials.password,
+            }),
           });
-          const data = res.data?.data || res.data;
+          const json = await res.json();
+          const data = json?.data || json;
           if (data?.user) return data.user;
           return null;
         } catch {
@@ -44,11 +50,15 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         try {
-          await api.post("/auth/google-login", {
-            email: user.email,
-            name: user.name,
-            image: user.image,
-            google_id: account.providerAccountId,
+          await fetch(`${API_URL}/auth/google-login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: user.email,
+              name: user.name,
+              image: user.image,
+              google_id: account.providerAccountId,
+            }),
           });
         } catch {
           // User will be created on first login
@@ -62,29 +72,32 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.name = user.name;
         token.image = user.image;
+        token.setupComplete = false;
       }
 
       if (account?.provider === "google") {
         token.accessToken = account.access_token;
       }
 
-      // Fetch user profile from backend on each token refresh
+      // Always fetch fresh setup_complete from backend using native fetch
+      // (axios api instance is unreliable in server-side NextAuth callbacks)
       if (token.email) {
         try {
-          const res = await api.get(`/auth/user/${token.email}`);
-          if (res.data) {
-            token.tier = res.data.tier || "trial";
-            token.agentType = res.data.agent_type || "general";
-            token.isActive = res.data.is_active ?? true;
-            token.setupComplete = res.data.setup_complete ?? false;
-            token.trialEndDate = res.data.trial_end_date;
+          const res = await fetch(`${API_URL}/auth/user/${token.email}`);
+          if (res.ok) {
+            const data = await res.json();
+            token.setupComplete = data?.setup_complete === true;
+            token.tier = data?.tier || "trial";
+            token.agentType = data?.agent_type || "general";
+            token.isActive = data?.is_active ?? true;
+            token.trialEndDate = data?.trial_end_date;
           }
         } catch {
-          // Defaults for new users
+          // If fetch fails, keep existing token values
+          token.setupComplete = token.setupComplete || false;
           token.tier = token.tier || "trial";
           token.agentType = token.agentType || "general";
           token.isActive = token.isActive ?? true;
-          token.setupComplete = token.setupComplete ?? false;
         }
       }
 
@@ -92,11 +105,11 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
+        session.user.id = (token.id || token.sub) as string;
+        session.user.setupComplete = (token.setupComplete as boolean) ?? false;
         session.user.tier = (token.tier as string) || "trial";
         session.user.agentType = (token.agentType as string) || "general";
         session.user.isActive = (token.isActive as boolean) ?? true;
-        session.user.setupComplete = (token.setupComplete as boolean) ?? false;
         session.user.trialEndDate = token.trialEndDate as string | undefined;
       }
       return session;

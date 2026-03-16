@@ -114,7 +114,7 @@ const aiModels = [
 const TOTAL_STEPS = 7;
 
 export function SetupWizard() {
-  const { data: session } = useSession();
+  const { data: session, update } = useSession();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [setupError, setSetupError] = useState("");
@@ -248,6 +248,13 @@ export function SetupWizard() {
     // ALWAYS advance to step 7 regardless of backend success/failure
     setStep(7);
     setLoading(false);
+
+    // Force NextAuth session refresh so setupComplete updates in the JWT
+    try {
+      await update();
+    } catch {
+      // Non-fatal — session will refresh on next page load
+    }
   };
 
   return (
@@ -763,6 +770,7 @@ export function SetupWizard() {
                 className="mt-8"
                 size="lg"
                 onClick={() => {
+                  // Hard navigate to force full session refresh
                   window.location.href = "/dashboard";
                 }}
                 rightIcon={<ArrowRight className="h-4 w-4" />}
