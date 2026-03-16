@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getSession } from "next-auth/react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -13,18 +14,24 @@ export const api = axios.create({
 });
 
 /**
- * Add authentication token to requests
+ * Interceptor: attach JWT Bearer token from NextAuth session to every request
  */
-export function setAuthToken(token: string) {
-  api.defaults.headers.common["X-API-Key"] = token;
-}
-
-/**
- * Remove authentication token
- */
-export function removeAuthToken() {
-  delete api.defaults.headers.common["X-API-Key"];
-}
+api.interceptors.request.use(async (config) => {
+  try {
+    const session = await getSession();
+    if (session) {
+      const token =
+        (session as unknown as Record<string, unknown>).accessToken ||
+        "";
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
+  } catch {
+    // Session fetch failed — continue without auth header
+  }
+  return config;
+});
 
 /**
  * API error handler

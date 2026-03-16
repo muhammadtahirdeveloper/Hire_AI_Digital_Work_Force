@@ -30,7 +30,13 @@ export const authOptions: NextAuthOptions = {
           });
           const json = await res.json();
           const data = json?.data || json;
-          if (data?.user) return data.user;
+          if (data?.user) {
+            // Return user with backend JWT attached
+            return {
+              ...data.user,
+              backendToken: data.token || data.access_token || "",
+            };
+          }
           return null;
         } catch {
           return null;
@@ -47,23 +53,7 @@ export const authOptions: NextAuthOptions = {
     newUser: "/signup",
   },
   callbacks: {
-    async signIn({ user, account }) {
-      if (account?.provider === "google") {
-        try {
-          await fetch(`${API_URL}/auth/google-login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: user.email,
-              name: user.name,
-              image: user.image,
-              google_id: account.providerAccountId,
-            }),
-          });
-        } catch {
-          // User will be created on first login
-        }
-      }
+    async signIn() {
       return true;
     },
     async jwt({ token, user, account }) {
@@ -73,14 +63,37 @@ export const authOptions: NextAuthOptions = {
         token.name = user.name;
         token.image = user.image;
         token.setupComplete = false;
+
+        // Save backend JWT from credentials login
+        if ((user as unknown as Record<string, unknown>).backendToken) {
+          token.backendToken = (user as unknown as Record<string, unknown>).backendToken as string;
+        }
       }
 
-      if (account?.provider === "google") {
-        token.accessToken = account.access_token;
+      // For Google login: call backend to upsert user and get a backend JWT
+      if (account?.provider === "google" && user?.email) {
+        try {
+          const res = await fetch(`${API_URL}/auth/google-login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: user.email,
+              name: user.name,
+              image: user.image,
+              google_id: account.providerAccountId,
+            }),
+          });
+          const json = await res.json();
+          const data = json?.data || json;
+          if (data?.token) {
+            token.backendToken = data.token;
+          }
+        } catch {
+          // Google login backend call failed — user can still sign in
+        }
       }
 
-      // Always fetch fresh setup_complete from backend using native fetch
-      // (axios api instance is unreliable in server-side NextAuth callbacks)
+      // Always fetch fresh setup_complete from backend
       if (token.email) {
         try {
           const res = await fetch(`${API_URL}/auth/user/${token.email}`);
@@ -112,6 +125,8 @@ export const authOptions: NextAuthOptions = {
         session.user.isActive = (token.isActive as boolean) ?? true;
         session.user.trialEndDate = token.trialEndDate as string | undefined;
       }
+      // Expose backend JWT so api.ts interceptor can send it as Bearer token
+      session.accessToken = (token.backendToken as string) || "";
       return session;
     },
   },

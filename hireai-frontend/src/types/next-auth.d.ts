@@ -13,6 +13,7 @@ declare module "next-auth" {
       setupComplete: boolean;
       trialEndDate?: string;
     };
+    accessToken?: string;
   }
 
   interface User {
@@ -24,6 +25,7 @@ declare module "next-auth" {
     agentType?: string;
     isActive?: boolean;
     setupComplete?: boolean;
+    backendToken?: string;
   }
 }
 
@@ -36,5 +38,6 @@ declare module "next-auth/jwt" {
     setupComplete?: boolean;
     trialEndDate?: string;
     accessToken?: string;
+    backendToken?: string;
   }
 }

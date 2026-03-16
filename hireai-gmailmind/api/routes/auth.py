@@ -340,6 +340,7 @@ async def register(body: RegisterRequest):
                     "image": "",
                 },
                 "token": token,
+                "access_token": token,
             })
         finally:
             db.close()
@@ -404,6 +405,7 @@ async def login(body: LoginRequest):
                     "image": row[4] or "",
                 },
                 "token": token,
+                "access_token": token,
             })
         finally:
             db.close()
@@ -470,14 +472,15 @@ async def google_login(body: GoogleLoginRequest):
                 db.commit()
 
             logger.info("Google user upserted: %s", body.email)
-            return _ok({"user_id": user_id})
+            token = _create_jwt(user_id, body.email.lower(), body.name or "")
+            return _ok({"user_id": user_id, "token": token, "access_token": token})
         finally:
             db.close()
     except HTTPException:
         raise
     except Exception as exc:
         logger.error("Google login failed: %s", exc)
-        return _ok({"user_id": "google-user"})
+        return _ok({"user_id": "google-user", "token": "", "access_token": ""})
 
 
 # ============================================================================
