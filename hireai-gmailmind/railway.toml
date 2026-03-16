@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "celery -A scheduler.celery_app worker --loglevel=info --concurrency=2"
+startCommand = "celery -A scheduler.celery_app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
