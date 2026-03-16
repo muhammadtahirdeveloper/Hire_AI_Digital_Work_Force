@@ -77,8 +77,14 @@ export default function SignupPage() {
 
       // Show verification screen instead of auto-login
       setShowVerification(true);
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "Failed to fetch") {
+        setError("Cannot reach server. Please check your connection.");
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
     } finally {
       setLoading(false);
     }

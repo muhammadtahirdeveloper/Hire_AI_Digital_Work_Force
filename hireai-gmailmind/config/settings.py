@@ -10,7 +10,8 @@ load_dotenv()
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv(
-    "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
+    "GOOGLE_REDIRECT_URI",
+    "https://hireaidigitalworkforce-production.up.railway.app/auth/google/callback",
 )
 GMAIL_SCOPES = os.getenv(
     "GMAIL_SCOPES",
@@ -64,7 +65,7 @@ DAILY_ACTION_LIMIT = int(os.getenv("DAILY_ACTION_LIMIT", "200"))
 MAX_RECIPIENTS_PER_SEND = int(os.getenv("MAX_RECIPIENTS_PER_SEND", "50"))
 
 # --- JWT / Auth ---
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_SECRET = os.getenv("JWT_SECRET", "hireai-jwt-secret-2026")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 # --- CORS ---

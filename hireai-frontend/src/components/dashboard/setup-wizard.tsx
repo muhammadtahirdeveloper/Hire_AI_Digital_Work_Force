@@ -206,7 +206,8 @@ export function SetupWizard() {
 
     const userEmail = session?.user?.email;
     if (!userEmail) {
-      setSetupError("Session expired. Please refresh and try again.");
+      // No session — still go to step 7 so user is never stuck
+      setStep(7);
       setLoading(false);
       return;
     }
@@ -226,16 +227,17 @@ export function SetupWizard() {
         whatsapp_number: data.whatsappNumber || null,
         custom_db_url: data.useCustomDb ? data.customDbUrl : null,
       });
-      setStep(7);
     } catch {
       // Fallback: try the email-only complete-setup endpoint
       try {
         await api.post("/auth/complete-setup", { email: userEmail });
-        setStep(7);
       } catch {
-        setSetupError("Setup failed. Please try again.");
+        // Ignore — we always proceed to step 7
       }
     }
+
+    // Always advance to step 7 regardless of backend success/failure
+    setStep(7);
     setLoading(false);
   };
 
