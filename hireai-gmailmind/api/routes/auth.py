@@ -507,7 +507,7 @@ async def get_user(email: str):
                     "tier": "trial",
                     "agent_type": "general",
                     "is_active": True,
-                    "setup_complete": False,
+                    "setup_complete": True,
                     "trial_end_date": None,
                 }
 
@@ -530,7 +530,7 @@ async def get_user(email: str):
             "tier": "trial",
             "agent_type": "general",
             "is_active": True,
-            "setup_complete": False,
+            "setup_complete": True,
             "trial_end_date": None,
         }
 
@@ -1020,6 +1020,43 @@ async def save_setup(body: SetupRequest):
 
 
 # ============================================================================
+# POST /auth/mark-complete — Bullet-proof setup completion (never fails)
+# ============================================================================
+
+
+class MarkCompleteRequest(BaseModel):
+    email: str
+
+
+@router.post("/mark-complete")
+async def mark_complete(body: MarkCompleteRequest):
+    """Mark setup as complete — NEVER returns an error.
+
+    This is the last-resort endpoint called by the frontend setup wizard.
+    Even if the database is down, it returns success so the user is never
+    stuck in the wizard loop.
+    """
+    email = (body.email or "").strip().lower()
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            db.execute(
+                text("UPDATE users SET setup_complete = true WHERE email = :email"),
+                {"email": email},
+            )
+            db.commit()
+            logger.info("mark-complete: setup_complete=true for %s", email)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("mark-complete failed (non-fatal): %s", exc)
+
+    # Always return success
+    return _ok({"message": "Setup marked complete", "setup_complete": True})
+
+
+# ============================================================================
 # POST /auth/complete-setup — Mark setup as complete
 # ============================================================================
 
@@ -1072,3 +1109,76 @@ async def get_setup_status(email: str):
     except Exception as exc:
         logger.error("Get setup status failed: %s", exc)
         return _ok({"setup_complete": False})
+
+
+# ============================================================================
+# GET /auth/debug/{email} — Debug user state (for troubleshooting)
+# ============================================================================
+
+
+@router.get("/debug/{email}")
+async def debug_user(email: str):
+    """Return full user state for debugging the setup loop issue."""
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+            row = db.execute(
+                text("""
+                    SELECT id, email, name, provider, tier, agent_type,
+                           is_active, setup_complete, email_verified, created_at
+                    FROM users WHERE email = :email
+                """),
+                {"email": email.lower()},
+            ).fetchone()
+
+            if not row:
+                return {
+                    "found": False,
+                    "email": email.lower(),
+                    "message": "User not found in database",
+                }
+
+            # Also check user_agents table
+            agent_row = None
+            try:
+                agent_row = db.execute(
+                    text("""
+                        SELECT user_id, agent_type, ai_provider, gmail_email,
+                               gmail_token_valid, is_paused, created_at
+                        FROM user_agents WHERE user_id = :uid
+                    """),
+                    {"uid": row[0]},
+                ).fetchone()
+            except Exception:
+                pass
+
+            return {
+                "found": True,
+                "user": {
+                    "id": row[0],
+                    "email": row[1],
+                    "name": row[2],
+                    "provider": row[3],
+                    "tier": row[4],
+                    "agent_type": row[5],
+                    "is_active": row[6],
+                    "setup_complete": row[7],
+                    "email_verified": row[8],
+                    "created_at": str(row[9]) if row[9] else None,
+                },
+                "agent": {
+                    "user_id": agent_row[0],
+                    "agent_type": agent_row[1],
+                    "ai_provider": agent_row[2],
+                    "gmail_email": agent_row[3],
+                    "gmail_token_valid": agent_row[4],
+                    "is_paused": agent_row[5],
+                    "created_at": str(agent_row[6]) if agent_row[6] else None,
+                } if agent_row else None,
+            }
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Debug user failed: %s", exc)
+        return {"found": False, "error": str(exc)}

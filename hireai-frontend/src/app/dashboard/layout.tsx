@@ -17,8 +17,8 @@ export default function DashboardLayout({
     return <PageLoader />;
   }
 
-  // Show setup wizard for new users
-  if (session?.user && !session.user.setupComplete) {
+  // Show setup wizard only if setupComplete is explicitly false
+  if (session?.user && session.user.setupComplete === false) {
     return <SetupWizard />;
   }
 

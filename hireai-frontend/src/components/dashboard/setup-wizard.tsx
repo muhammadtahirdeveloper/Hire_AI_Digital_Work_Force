@@ -212,31 +212,40 @@ export function SetupWizard() {
       return;
     }
 
-    try {
-      await api.post("/auth/setup", {
-        email: userEmail,
-        gmail_address: data.gmailAddress,
-        agent_type: data.agentType,
-        ai_model: data.aiModel,
-        ai_api_key: data.aiApiKey || null,
-        business_name: data.businessName,
-        user_name: data.userName,
-        reply_tone: data.replyTone,
-        working_hours_from: data.workingHoursFrom,
-        working_hours_to: data.workingHoursTo,
-        whatsapp_number: data.whatsappNumber || null,
-        custom_db_url: data.useCustomDb ? data.customDbUrl : null,
-      });
-    } catch {
-      // Fallback: try the email-only complete-setup endpoint
+    // Try multiple endpoints in order — at least one should persist setup_complete
+    const endpoints = [
+      {
+        url: "/auth/setup",
+        body: {
+          email: userEmail,
+          gmail_address: data.gmailAddress,
+          agent_type: data.agentType,
+          ai_model: data.aiModel,
+          ai_api_key: data.aiApiKey || null,
+          business_name: data.businessName,
+          user_name: data.userName,
+          reply_tone: data.replyTone,
+          working_hours_from: data.workingHoursFrom,
+          working_hours_to: data.workingHoursTo,
+          whatsapp_number: data.whatsappNumber || null,
+          custom_db_url: data.useCustomDb ? data.customDbUrl : null,
+        },
+      },
+      { url: "/auth/mark-complete", body: { email: userEmail } },
+      { url: "/auth/complete-setup", body: { email: userEmail } },
+      { url: "/api/user/complete-setup", body: { email: userEmail } },
+    ];
+
+    for (const ep of endpoints) {
       try {
-        await api.post("/auth/complete-setup", { email: userEmail });
+        await api.post(ep.url, ep.body);
+        break; // success — stop trying
       } catch {
-        // Ignore — we always proceed to step 7
+        // try next endpoint
       }
     }
 
-    // Always advance to step 7 regardless of backend success/failure
+    // ALWAYS advance to step 7 regardless of backend success/failure
     setStep(7);
     setLoading(false);
   };

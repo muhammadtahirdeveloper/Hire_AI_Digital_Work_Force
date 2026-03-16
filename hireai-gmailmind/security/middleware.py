@@ -18,6 +18,7 @@ PUBLIC_ROUTES = {
     "/security-status",
     "/auth/setup",
     "/auth/complete-setup",
+    "/auth/mark-complete",
     "/auth/verify-email",
     "/auth/forgot-password",
     "/auth/reset-password",
