@@ -6,6 +6,7 @@ import { signIn } from "next-auth/react";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { setAuthToken } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -74,6 +75,10 @@ export default function SignupPage() {
         setError(registerData.detail || "Failed to create account. Please try again.");
         return;
       }
+
+      // Save backend JWT token
+      const jwt = registerData.data?.token || registerData.data?.access_token || "";
+      if (jwt) setAuthToken(jwt);
 
       // Show verification screen instead of auto-login
       setShowVerification(true);

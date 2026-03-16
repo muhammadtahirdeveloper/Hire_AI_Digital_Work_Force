@@ -6,6 +6,7 @@ import { signIn } from "next-auth/react";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { setAuthToken } from "@/lib/api";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -15,6 +16,8 @@ export default function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const [needsVerification, setNeedsVerification] = useState(false);
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const handleGoogleLogin = () => {
     setGoogleLoading(true);
@@ -27,6 +30,23 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      // Pre-fetch backend JWT so we can store it in localStorage
+      try {
+        const backendRes = await fetch(`${API_URL}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        if (backendRes.ok) {
+          const backendJson = await backendRes.json();
+          const backendData = backendJson?.data || backendJson;
+          const jwt = backendData?.token || backendData?.access_token || "";
+          if (jwt) setAuthToken(jwt);
+        }
+      } catch {
+        // Non-fatal — continue with NextAuth signIn
+      }
+
       const res = await signIn("credentials", {
         email,
         password,

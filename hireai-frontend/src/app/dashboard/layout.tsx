@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { SetupWizard } from "@/components/dashboard/setup-wizard";
 import { PageLoader } from "@/components/shared/page-loader";
 import { Chatbot } from "@/components/shared/chatbot";
+import { setAuthToken, getAuthToken } from "@/lib/api";
 
 export default function DashboardLayout({
   children,
@@ -12,6 +14,17 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { data: session, status } = useSession();
+
+  // Sync backend JWT from NextAuth session to localStorage (for Google login)
+  useEffect(() => {
+    const existing = getAuthToken();
+    if (!existing && session) {
+      const backendToken = (session as unknown as Record<string, unknown>).accessToken as string;
+      if (backendToken) {
+        setAuthToken(backendToken);
+      }
+    }
+  }, [session]);
 
   if (status === "loading") {
     return <PageLoader />;

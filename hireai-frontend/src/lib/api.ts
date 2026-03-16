@@ -1,7 +1,34 @@
 import axios from "axios";
-import { getSession } from "next-auth/react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+/**
+ * Save JWT token to localStorage
+ */
+export function setAuthToken(token: string) {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("hireai_token", token);
+  }
+}
+
+/**
+ * Get JWT token from localStorage
+ */
+export function getAuthToken(): string {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("hireai_token") || "";
+  }
+  return "";
+}
+
+/**
+ * Remove JWT token from localStorage
+ */
+export function removeAuthToken() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("hireai_token");
+  }
+}
 
 /**
  * Axios instance configured for HireAI backend API
@@ -14,21 +41,12 @@ export const api = axios.create({
 });
 
 /**
- * Interceptor: attach JWT Bearer token from NextAuth session to every request
+ * Interceptor: attach JWT Bearer token from localStorage to every request
  */
-api.interceptors.request.use(async (config) => {
-  try {
-    const session = await getSession();
-    if (session) {
-      const token =
-        (session as unknown as Record<string, unknown>).accessToken ||
-        "";
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
-  } catch {
-    // Session fetch failed — continue without auth header
+api.interceptors.request.use((config) => {
+  const token = getAuthToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });

@@ -87,29 +87,45 @@ const tierCards = [
   {
     id: "tier1",
     name: "Starter",
-    price: 19,
-    model: "claude-haiku-3-5",
+    price: 9,
+    model: "Gemini / Groq (Free APIs)",
     popular: false,
   },
   {
     id: "tier2",
     name: "Professional",
-    price: 49,
-    model: "claude-sonnet-4-5",
+    price: 29,
+    model: "Claude Haiku 3.5",
     popular: true,
   },
   {
     id: "tier3",
     name: "Enterprise",
-    price: 99,
-    model: "claude-sonnet-4-5",
+    price: 59,
+    model: "Claude Sonnet 4.5",
     popular: false,
+    note: "or $39/mo with BYOK",
   },
 ];
 
+function getModelForTier(tier: string): { name: string; provider: string } {
+  switch (tier) {
+    case "tier2":
+    case "professional":
+      return { name: "Claude Haiku 3.5", provider: "Anthropic" };
+    case "tier3":
+    case "enterprise":
+      return { name: "Claude Sonnet 4.5", provider: "Anthropic" };
+    default:
+      // trial, starter, tier1
+      return { name: "Gemini 1.5 Flash (Free)", provider: "Google Gemini" };
+  }
+}
+
 const modelDescriptions: Record<string, string> = {
-  "claude-haiku-3-5": "Fast and efficient for routine email classification and quick replies. Great for high-volume processing.",
-  "claude-sonnet-4-5": "Advanced reasoning for complex emails, nuanced replies, and accurate classification across all categories.",
+  "Gemini 1.5 Flash (Free)": "Fast and cost-effective for routine email classification and quick replies. Powered by Google Gemini free tier.",
+  "Claude Haiku 3.5": "Fast and efficient for routine email classification and quick replies. Great for high-volume processing.",
+  "Claude Sonnet 4.5": "Advanced reasoning for complex emails, nuanced replies, and accurate classification across all categories.",
 };
 
 const languages = [
@@ -195,7 +211,8 @@ export default function AgentManagementPage() {
 
   const currentAgent = (agentStatus?.agent_type || session?.user?.agentType || "general") as AgentType;
   const currentTier = agentStatus?.tier || session?.user?.tier || "trial";
-  const currentModel = agentStatus?.model || "claude-sonnet-4-5";
+  const tierModel = getModelForTier(currentTier);
+  const currentModel = tierModel.name;
 
   const [config, setConfig] = useState<AgentConfig>({
     businessName: "",
@@ -422,6 +439,9 @@ export default function AgentManagementPage() {
                   <span className="text-sm font-normal text-text-3">/mo</span>
                 </p>
                 <p className="mt-1 font-mono text-xs text-text-4">{tier.model}</p>
+                {"note" in tier && tier.note && (
+                  <p className="mt-0.5 text-xs text-navy">{tier.note}</p>
+                )}
                 {isActive && (
                   <Badge variant="success" className="mt-3">
                     Current Plan
