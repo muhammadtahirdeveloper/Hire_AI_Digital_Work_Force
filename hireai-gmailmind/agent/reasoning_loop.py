@@ -35,6 +35,7 @@ from memory.long_term import (
     get_sender_memory,
     get_user_credentials,
     log_action as persist_action,
+    save_user_credentials,
     update_sender_memory,
 )
 from memory.schemas import ActionLogCreate, SenderProfileUpdate
@@ -77,6 +78,11 @@ def _load_token_from_db(user_id: str) -> dict[str, Any]:
 def _build_credentials_from_db(user_id: str):
     """Build Google OAuth2 Credentials from database-stored token.
 
+    Loads token data from the DB, builds a Credentials object with the
+    stored expiry so that ``credentials.expired`` works correctly, refreshes
+    the token when expired, and **persists the refreshed token back** to the
+    database so subsequent runs start with a valid access token.
+
     Args:
         user_id: The user ID whose credentials to load.
 
@@ -85,12 +91,51 @@ def _build_credentials_from_db(user_id: str):
     """
     token_data = _load_token_from_db(user_id)
 
+    # Parse stored expiry string into a datetime
+    expiry = None
+    expiry_raw = token_data.get("expiry")
+    if expiry_raw:
+        try:
+            expiry = datetime.fromisoformat(str(expiry_raw))
+        except (ValueError, TypeError):
+            logger.warning("Could not parse expiry '%s', treating as expired.", expiry_raw)
+
     creds = build_credentials(
         token=token_data.get("token", ""),
         refresh_token=token_data.get("refresh_token", ""),
         token_uri=token_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+        expiry=expiry,
     )
-    creds = refresh_credentials(creds)
+
+    # Force refresh if the token looks expired even when the library can't tell
+    needs_refresh = creds.expired or (
+        expiry is not None
+        and expiry.replace(tzinfo=timezone.utc)
+        <= datetime.now(timezone.utc)
+    )
+
+    if needs_refresh and creds.refresh_token:
+        logger.info("Token expired for user=%s, refreshing...", user_id)
+        creds = refresh_credentials(creds)
+
+        # Persist the refreshed token back to the DB
+        updated_token_data = {
+            "token": creds.token,
+            "refresh_token": creds.refresh_token or token_data.get("refresh_token", ""),
+            "token_uri": creds.token_uri or token_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+            "client_id": creds.client_id or token_data.get("client_id", ""),
+            "client_secret": creds.client_secret or token_data.get("client_secret", ""),
+            "scopes": list(creds.scopes or token_data.get("scopes", [])),
+            "expiry": creds.expiry.isoformat() if creds.expiry else None,
+        }
+        try:
+            save_user_credentials(user_id, updated_token_data)
+            logger.info("Refreshed token saved to DB for user=%s", user_id)
+        except Exception as exc:
+            logger.error("Failed to save refreshed token for user=%s: %s", user_id, exc)
+    elif not creds.refresh_token:
+        logger.warning("No refresh_token available for user=%s, cannot auto-refresh.", user_id)
+
     return creds
 
 

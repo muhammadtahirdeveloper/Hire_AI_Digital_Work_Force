@@ -1,6 +1,9 @@
 """Google OAuth2 credential management for Gmail API access."""
 
 import logging
+from datetime import datetime, timezone
+from typing import Optional
+
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -39,6 +42,7 @@ def build_credentials(
     token: str,
     refresh_token: str,
     token_uri: str = "https://oauth2.googleapis.com/token",
+    expiry: Optional[datetime] = None,
 ) -> Credentials:
     """Build Google OAuth2 Credentials from stored token data.
 
@@ -46,6 +50,7 @@ def build_credentials(
         token: The OAuth2 access token.
         refresh_token: The OAuth2 refresh token for token renewal.
         token_uri: The token endpoint URI.
+        expiry: Token expiration datetime (timezone-aware or naive UTC).
 
     Returns:
         A google.oauth2.credentials.Credentials instance.
@@ -58,7 +63,18 @@ def build_credentials(
         client_secret=GOOGLE_CLIENT_SECRET,
         scopes=GMAIL_SCOPES,
     )
-    logger.info("Built OAuth2 credentials (token present: %s)", bool(token))
+
+    # Set expiry so credentials.expired can detect stale tokens
+    if expiry is not None:
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        creds.expiry = expiry
+        creds.token = token  # ensure token is set even with expiry
+
+    logger.info(
+        "Built OAuth2 credentials (token present: %s, expiry: %s)",
+        bool(token), expiry,
+    )
     return creds
 
 

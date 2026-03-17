@@ -469,10 +469,11 @@ def save_user_credentials(
 
     try:
         # Encrypt sensitive fields
+        # The OAuth callback stores the access token under the key "token"
         encryption_manager = EncryptionManager()
         encrypted_data = encryption_manager.encrypt_dict(
             credentials_data.copy(),
-            fields=['access_token', 'refresh_token']
+            fields=['token', 'refresh_token']
         )
 
         # Convert to JSON for storage
@@ -535,10 +536,11 @@ def get_user_credentials(
         credentials_data = json.loads(result[0])
 
         # Decrypt sensitive fields with graceful fallback for legacy plain text data
+        # The OAuth callback stores the access token under the key "token"
         encryption_manager = EncryptionManager()
         decrypted_data = encryption_manager.decrypt_dict(
             credentials_data,
-            fields=['access_token', 'refresh_token']
+            fields=['token', 'refresh_token']
         )
 
         logger.info("get_user_credentials: Retrieved credentials for user=%s", user_id)
