@@ -14,6 +14,7 @@ Every task:
 import asyncio
 import logging
 import time
+import traceback
 from datetime import datetime, timezone
 from typing import Any
 
@@ -23,6 +24,9 @@ from config.database import SessionLocal
 from scheduler.celery_app import app
 
 logger = logging.getLogger(__name__)
+
+# Ensure Celery worker actually outputs our logs
+logging.basicConfig(level=logging.INFO)
 
 
 # ============================================================================
@@ -108,22 +112,46 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
     """
     start = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat()
-    logger.info("[run_gmailmind_for_user] START user=%s at %s", user_id, started_at)
 
-    _ensure_status_table()
-    _set_agent_status(user_id, "running")
+    logger.info(
+        "========== [run_gmailmind_for_user] TASK STARTED ==========\n"
+        "  user_id   : %s\n"
+        "  started_at: %s\n"
+        "  task_id   : %s",
+        user_id, started_at, self.request.id,
+    )
 
     try:
-        # --- Orchestrator gate check ---
-        from orchestrator.orchestrator import GmailMindOrchestrator
+        # --- Step 1: Ensure status table ---
+        logger.info("[run_gmailmind_for_user] Step 1/6: Ensuring agent_status table exists...")
+        _ensure_status_table()
+        _set_agent_status(user_id, "running")
+        logger.info("[run_gmailmind_for_user] Step 1/6: DONE — agent status set to 'running'")
 
-        orchestrator = GmailMindOrchestrator()
-        routing = orchestrator.process_user(user_id)
-        logger.info("[orchestrator] Routing: %s", routing)
+        # --- Step 2: Orchestrator gate check ---
+        logger.info("[run_gmailmind_for_user] Step 2/6: Running orchestrator gate check...")
+        try:
+            from orchestrator.orchestrator import GmailMindOrchestrator
+
+            orchestrator = GmailMindOrchestrator()
+            routing = orchestrator.process_user(user_id)
+            logger.info(
+                "[run_gmailmind_for_user] Step 2/6: DONE — routing=%s", routing,
+            )
+        except Exception as exc:
+            logger.error(
+                "[run_gmailmind_for_user] Step 2/6: FAILED — orchestrator error:\n%s",
+                traceback.format_exc(),
+            )
+            raise
 
         if routing.get("status") == "skipped":
             _set_agent_status(user_id, "idle")
             duration = time.monotonic() - start
+            logger.info(
+                "[run_gmailmind_for_user] SKIPPED user=%s reason=%s duration=%.1fs",
+                user_id, routing.get("reason", "unknown"), duration,
+            )
             return {
                 "status": "skipped",
                 "user_id": user_id,
@@ -132,24 +160,88 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
                 "reason": routing.get("reason", "unknown"),
             }
 
-        # --- Run via EmailProcessor (AI Router pipeline) ---
-        from agent.email_processor import EmailProcessor
-
-        processor = EmailProcessor(user_id)
-
-        loop = asyncio.new_event_loop()
+        # --- Step 3: Load user credentials / Gmail token ---
+        logger.info("[run_gmailmind_for_user] Step 3/6: Loading Gmail credentials for user=%s...", user_id)
         try:
-            result = loop.run_until_complete(processor.process_inbox())
-        finally:
-            loop.close()
+            from memory.long_term import get_user_credentials
 
+            creds = get_user_credentials(user_id)
+            if creds:
+                has_token = bool(creds.get("token"))
+                has_refresh = bool(creds.get("refresh_token"))
+                expiry = creds.get("expiry", "N/A")
+                logger.info(
+                    "[run_gmailmind_for_user] Step 3/6: DONE — Gmail token loaded\n"
+                    "  has_access_token : %s\n"
+                    "  has_refresh_token: %s\n"
+                    "  token_expiry     : %s",
+                    has_token, has_refresh, expiry,
+                )
+            else:
+                logger.warning(
+                    "[run_gmailmind_for_user] Step 3/6: WARNING — No credentials found for user=%s", user_id,
+                )
+        except Exception as exc:
+            logger.error(
+                "[run_gmailmind_for_user] Step 3/6: FAILED — credential check error:\n%s",
+                traceback.format_exc(),
+            )
+            # Don't raise here — let EmailProcessor handle it with its own error
+
+        # --- Step 4: Create EmailProcessor ---
+        logger.info("[run_gmailmind_for_user] Step 4/6: Creating EmailProcessor for user=%s...", user_id)
+        try:
+            from agent.email_processor import EmailProcessor
+
+            processor = EmailProcessor(user_id)
+            logger.info("[run_gmailmind_for_user] Step 4/6: DONE — EmailProcessor created")
+        except Exception as exc:
+            logger.error(
+                "[run_gmailmind_for_user] Step 4/6: FAILED — EmailProcessor init error:\n%s",
+                traceback.format_exc(),
+            )
+            raise
+
+        # --- Step 5: Process inbox ---
+        logger.info("[run_gmailmind_for_user] Step 5/6: Processing inbox (async)...")
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(processor.process_inbox())
+            finally:
+                loop.close()
+
+            emails_processed = result.get("processed", 0)
+            total_emails = result.get("total", 0)
+            error_in_result = result.get("error")
+
+            if error_in_result:
+                logger.error(
+                    "[run_gmailmind_for_user] Step 5/6: PIPELINE ERROR — %s", error_in_result,
+                )
+            else:
+                logger.info(
+                    "[run_gmailmind_for_user] Step 5/6: DONE — Emails fetched: %d, Processed: %d\n"
+                    "  full result: %s",
+                    total_emails, emails_processed, result,
+                )
+        except Exception as exc:
+            logger.error(
+                "[run_gmailmind_for_user] Step 5/6: FAILED — process_inbox error:\n%s",
+                traceback.format_exc(),
+            )
+            raise
+
+        # --- Step 6: Finalize ---
         duration = time.monotonic() - start
-        emails_processed = result.get("processed", 0)
-
         _set_agent_status(user_id, "idle")
         logger.info(
-            "[run_gmailmind_for_user] DONE user=%s duration=%.1fs emails_processed=%d "
-            "industry=%s tier=%s",
+            "========== [run_gmailmind_for_user] TASK COMPLETED ==========\n"
+            "  user_id         : %s\n"
+            "  duration         : %.1fs\n"
+            "  emails_processed : %d\n"
+            "  industry         : %s\n"
+            "  tier             : %s",
             user_id, duration, emails_processed,
             routing.get("industry", "general"), routing.get("tier", "tier2"),
         )
@@ -167,10 +259,20 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
     except Exception as exc:
         duration = time.monotonic() - start
         error_msg = f"{type(exc).__name__}: {exc}"
-        _set_agent_status(user_id, "error", error_msg=error_msg)
-        logger.exception(
-            "[run_gmailmind_for_user] ERROR user=%s after %.1fs: %s",
-            user_id, duration, exc,
+        tb = traceback.format_exc()
+
+        try:
+            _set_agent_status(user_id, "error", error_msg=error_msg)
+        except Exception:
+            pass
+
+        logger.error(
+            "========== [run_gmailmind_for_user] TASK FAILED ==========\n"
+            "  user_id  : %s\n"
+            "  duration : %.1fs\n"
+            "  error    : %s\n"
+            "  traceback:\n%s",
+            user_id, duration, error_msg, tb,
         )
 
         return {
@@ -179,6 +281,7 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
             "started_at": started_at,
             "duration_s": round(duration, 2),
             "error": error_msg,
+            "traceback": tb,
         }
 
 
