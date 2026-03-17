@@ -34,14 +34,16 @@ def _err(message: str) -> dict:
 # ============================================================================
 
 
+@router.get("/emails")
 @router.get("/emails/recent")
 async def get_recent_emails(
     user: dict = Depends(get_current_user),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=100),
     page: int = Query(1, ge=1),
     category: str = Query("all"),
     action: str = Query("all"),
     search: str = Query(""),
+    period: str = Query("all"),
 ):
     """List recent emails with filtering and pagination."""
     user_id = user.get("sub", "")
@@ -50,10 +52,23 @@ async def get_recent_emails(
     try:
         db = SessionLocal()
         try:
-            conditions = ["user_id = :uid"]
+            # Ensure action_logs has the columns we need
+            for col in [
+                "user_id VARCHAR(255)",
+                "email_subject VARCHAR(500)",
+            ]:
+                try:
+                    db.execute(text(f"ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS {col}"))
+                except Exception:
+                    pass
+            db.commit()
+
+            conditions = [
+                "(user_id = :uid OR metadata->>'user_id' = :uid)"
+            ]
             params: dict[str, Any] = {"uid": user_id, "lim": limit, "off": offset}
 
-            if category != "all":
+            if category != "all" and category != "All":
                 conditions.append("metadata->>'category' = :cat")
                 params["cat"] = category
             if action != "all":
@@ -64,6 +79,14 @@ async def get_recent_emails(
                     "(email_from ILIKE :search OR metadata->>'subject' ILIKE :search)"
                 )
                 params["search"] = f"%{search}%"
+
+            # Date period filtering
+            if period == "today":
+                conditions.append("DATE(timestamp) = CURRENT_DATE")
+            elif period == "week":
+                conditions.append("timestamp >= CURRENT_DATE - INTERVAL '7 days'")
+            elif period == "month":
+                conditions.append("timestamp >= CURRENT_DATE - INTERVAL '30 days'")
 
             where = " AND ".join(conditions)
 
@@ -87,14 +110,20 @@ async def get_recent_emails(
             emails = []
             for r in rows:
                 meta = r[3] or {}
+                from_addr = r[1] or ""
                 emails.append({
                     "id": str(r[0]),
-                    "from": r[1],
-                    "from_name": meta.get("from_name", r[1].split("@")[0] if r[1] else ""),
+                    "from": from_addr,
+                    "from_name": meta.get("from_name", from_addr.split("@")[0] if from_addr else ""),
+                    "from_email": from_addr,
                     "subject": meta.get("subject", "No subject"),
+                    "body": meta.get("body", ""),
                     "category": meta.get("category", "General"),
                     "action": r[2],
                     "timestamp": r[4].isoformat() if r[4] else None,
+                    "confidence": meta.get("confidence", 95),
+                    "agent_response": meta.get("agent_response", ""),
+                    "actions_taken": meta.get("actions_taken", []),
                     "escalation_reason": meta.get("escalation_reason"),
                 })
 

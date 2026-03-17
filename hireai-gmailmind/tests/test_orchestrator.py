@@ -341,7 +341,7 @@ class TestProcessEmail:
         mock_result = {
             "content": "ACTION: AUTO_REPLY\nREPLY: Thanks for reaching out!\nREASON: Standard inquiry.",
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": "gemini-1.5-flash-latest",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -350,7 +350,7 @@ class TestProcessEmail:
 
         assert result["action"] == "AUTO_REPLY"
         assert result["provider"] == "gemini"
-        assert result["model"] == "gemini-1.5-flash"
+        assert result["model"] == "gemini-1.5-flash-latest"
         assert "category" in result
 
     def test_process_email_draft_action(self):
@@ -373,7 +373,7 @@ class TestProcessEmail:
         mock_result = {
             "content": "ACTION: ESCALATE\nREASON: Legal threat detected.",
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": "gemini-1.5-flash-latest",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -387,7 +387,7 @@ class TestProcessEmail:
         mock_result = {
             "content": "ACTION: LABEL_ARCHIVE\nREASON: Newsletter, no reply needed.",
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": "gemini-1.5-flash-latest",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -405,7 +405,7 @@ class TestProcessEmail:
         mock_result = {
             "content": "ACTION: DRAFT_REPLY\nREPLY: We received your application.",
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": "gemini-1.5-flash-latest",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -438,7 +438,7 @@ class TestProcessEmail:
         mock_result = {
             "content": "ACTION: AUTO_REPLY\nREPLY: Hello!",
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": "gemini-1.5-flash-latest",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 

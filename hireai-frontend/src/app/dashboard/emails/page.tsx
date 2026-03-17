@@ -89,7 +89,7 @@ const categoryColors: Record<string, string> = {
 
 const PAGE_SIZE = 20;
 
-const fetcher = (url: string) => api.get(url).then((r) => r.data);
+const fetcher = (url: string) => api.get(url).then((r) => r.data?.data ?? r.data);
 
 // --- Page ---
 

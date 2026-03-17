@@ -206,7 +206,7 @@ class TestLog:
         decision = {
             "action": "AUTO_REPLY",
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": "gemini-1.5-flash-latest",
             "category": "inquiry",
         }
 
@@ -297,7 +297,7 @@ class TestProcessInbox:
             "action": "AUTO_REPLY",
             "ai_response": "REPLY: I'm great, thanks!",
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": "gemini-1.5-flash-latest",
             "category": "general",
         })
 

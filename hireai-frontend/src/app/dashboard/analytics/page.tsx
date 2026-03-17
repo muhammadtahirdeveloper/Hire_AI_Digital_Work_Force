@@ -82,7 +82,7 @@ const actionColors: Record<string, string> = {
   Blocked: "bg-danger",
 };
 
-const fetcher = (url: string) => api.get(url).then((r) => r.data);
+const fetcher = (url: string) => api.get(url).then((r) => r.data?.data ?? r.data);
 
 // --- Fallback data for demo rendering ---
 
@@ -154,12 +154,12 @@ export default function AnalyticsPage() {
   const data = apiData || fallbackData;
 
   const metricCards = [
-    { label: "Total Processed", value: data.total_processed.toLocaleString(), icon: Mail, color: "text-navy" },
-    { label: "Auto-Reply Rate", value: `${data.auto_reply_rate}%`, icon: Zap, color: "text-success" },
-    { label: "Avg Response Time", value: `${data.avg_response_time}m`, icon: Clock, color: "text-navy" },
-    { label: "Emails Escalated", value: String(data.emails_escalated), icon: AlertTriangle, color: "text-warning" },
-    { label: "Time Saved", value: `~${data.time_saved_hours}h`, icon: Timer, color: "text-success" },
-    { label: "Agent Uptime", value: `${data.agent_uptime}%`, icon: Activity, color: "text-navy" },
+    { label: "Total Processed", value: (data.total_processed ?? 0).toLocaleString(), icon: Mail, color: "text-navy" },
+    { label: "Auto-Reply Rate", value: `${data.auto_reply_rate ?? 0}%`, icon: Zap, color: "text-success" },
+    { label: "Avg Response Time", value: `${data.avg_response_time ?? 0}m`, icon: Clock, color: "text-navy" },
+    { label: "Emails Escalated", value: String(data.emails_escalated ?? 0), icon: AlertTriangle, color: "text-warning" },
+    { label: "Time Saved", value: `~${data.time_saved_hours ?? 0}h`, icon: Timer, color: "text-success" },
+    { label: "Agent Uptime", value: `${data.agent_uptime ?? 0}%`, icon: Activity, color: "text-navy" },
   ];
 
   const handleExport = () => {
@@ -238,7 +238,7 @@ export default function AnalyticsPage() {
         <CardBody>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data.volume_chart} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
+              <LineChart data={data.volume_chart ?? []} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" tick={{ fontSize: 12, fill: "var(--text-3)" }} />
                 <YAxis tick={{ fontSize: 12, fill: "var(--text-3)" }} />
@@ -295,7 +295,7 @@ export default function AnalyticsPage() {
                       paddingAngle={3}
                       dataKey="value"
                     >
-                      {data.category_breakdown.map((_, i) => (
+                      {(data.category_breakdown ?? []).map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -311,8 +311,8 @@ export default function AnalyticsPage() {
                 </ResponsiveContainer>
               </div>
               <div className="space-y-2">
-                {data.category_breakdown.map((cat, i) => {
-                  const total = data.category_breakdown.reduce((s, c) => s + c.value, 0);
+                {(data.category_breakdown ?? []).map((cat, i) => {
+                  const total = (data.category_breakdown ?? []).reduce((s, c) => s + (c.value ?? 0), 0);
                   const pct = total > 0 ? Math.round((cat.value / total) * 100) : 0;
                   return (
                     <div key={cat.name} className="flex items-center gap-2 text-sm">
@@ -339,12 +339,12 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardBody>
             <div className="space-y-4">
-              {data.action_distribution.map((item) => (
+              {(data.action_distribution ?? []).map((item) => (
                 <div key={item.action}>
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <span className="text-text-2">{item.action}</span>
                     <span className="font-medium text-text">
-                      {item.percentage}%
+                      {item.percentage ?? 0}%
                     </span>
                   </div>
                   <div className="h-2.5 w-full rounded-full bg-background-2">
@@ -353,11 +353,11 @@ export default function AnalyticsPage() {
                         "h-2.5 rounded-full transition-all",
                         actionColors[item.action] || "bg-navy"
                       )}
-                      style={{ width: `${item.percentage}%` }}
+                      style={{ width: `${item.percentage ?? 0}%` }}
                     />
                   </div>
                   <p className="mt-0.5 text-xs text-text-4">
-                    {item.count.toLocaleString()} emails
+                    {(item.count ?? 0).toLocaleString()} emails
                   </p>
                 </div>
               ))}
@@ -384,7 +384,7 @@ export default function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.top_senders.map((sender) => (
+                {(data.top_senders ?? []).map((sender) => (
                   <tr
                     key={sender.rank}
                     className="border-b border-border last:border-0 hover:bg-background-1"
@@ -421,7 +421,7 @@ export default function AnalyticsPage() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={data.response_time_trend}
+                data={data.response_time_trend ?? []}
                 margin={{ top: 5, right: 10, bottom: 5, left: -20 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -467,11 +467,12 @@ export default function AnalyticsPage() {
         </CardHeader>
         <CardBody>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {data.weekly_comparison.map((item) => {
+            {(data.weekly_comparison ?? []).map((item) => {
+              const change = item.change ?? 0;
               const improved =
                 item.metric === "Escalated" || item.metric === "Avg Response"
-                  ? item.change < 0
-                  : item.change > 0;
+                  ? change < 0
+                  : change > 0;
               return (
                 <div
                   key={item.metric}
@@ -482,15 +483,15 @@ export default function AnalyticsPage() {
                     <div>
                       <p className="text-xs text-text-4">This week</p>
                       <p className="text-xl font-bold text-text">
-                        {item.this_week}
-                        {item.unit}
+                        {item.this_week ?? 0}
+                        {item.unit ?? ""}
                       </p>
                     </div>
                     <div>
                       <p className="text-xs text-text-4">Last week</p>
                       <p className="text-lg text-text-3">
-                        {item.last_week}
-                        {item.unit}
+                        {item.last_week ?? 0}
+                        {item.unit ?? ""}
                       </p>
                     </div>
                   </div>
@@ -505,7 +506,7 @@ export default function AnalyticsPage() {
                     ) : (
                       <ArrowDownRight className="h-3 w-3" />
                     )}
-                    {Math.abs(item.change).toFixed(1)}%{" "}
+                    {Math.abs(change).toFixed(1)}%{" "}
                     {improved ? "improved" : "worse"}
                   </p>
                 </div>

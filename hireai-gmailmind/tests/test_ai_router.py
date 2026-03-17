@@ -149,16 +149,16 @@ class TestModelSelection:
 
     # Gemini
     def test_gemini_trial(self):
-        assert self.router._get_model("gemini", "trial") == "gemini-1.5-flash"
+        assert self.router._get_model("gemini", "trial") == "gemini-1.5-flash-latest"
 
     def test_gemini_tier1(self):
-        assert self.router._get_model("gemini", "tier1") == "gemini-1.5-flash"
+        assert self.router._get_model("gemini", "tier1") == "gemini-1.5-flash-latest"
 
     def test_gemini_tier2(self):
-        assert self.router._get_model("gemini", "tier2") == "gemini-1.5-pro"
+        assert self.router._get_model("gemini", "tier2") == "gemini-1.5-pro-latest"
 
     def test_gemini_tier3(self):
-        assert self.router._get_model("gemini", "tier3") == "gemini-1.5-pro"
+        assert self.router._get_model("gemini", "tier3") == "gemini-1.5-pro-latest"
 
     # Groq
     def test_groq_trial(self):
@@ -183,10 +183,10 @@ class TestModelSelection:
 
     # Unknown
     def test_unknown_provider_returns_default(self):
-        assert self.router._get_model("unknown", "tier1") == "gemini-1.5-flash"
+        assert self.router._get_model("unknown", "tier1") == "gemini-1.5-flash-latest"
 
     def test_unknown_tier_returns_default(self):
-        assert self.router._get_model("gemini", "unknown_tier") == "gemini-1.5-flash"
+        assert self.router._get_model("gemini", "unknown_tier") == "gemini-1.5-flash-latest"
 
 
 # ============================================================================
@@ -255,7 +255,7 @@ class TestGenerate:
         self.router = AIRouter()
 
     def test_generate_calls_gemini_for_trial_user(self):
-        mock_result = {"content": "Hello!", "provider": "gemini", "model": "gemini-1.5-flash"}
+        mock_result = {"content": "Hello!", "provider": "gemini", "model": "gemini-1.5-flash-latest"}
 
         with patch.object(self.router, "_get_user_config", return_value=("gemini", None, "trial")), \
              patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), \
@@ -278,7 +278,7 @@ class TestGenerate:
         assert result["provider"] == "groq"
 
     def test_generate_forces_gemini_when_trial_picks_openai(self):
-        mock_result = {"content": "Forced!", "provider": "gemini", "model": "gemini-1.5-flash"}
+        mock_result = {"content": "Forced!", "provider": "gemini", "model": "gemini-1.5-flash-latest"}
 
         with patch.object(self.router, "_get_user_config", return_value=("openai", "sk-key", "trial")), \
              patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), \
@@ -337,7 +337,7 @@ class TestFallback:
         assert result["original_provider"] == "gemini"
 
     def test_fallback_to_gemini_when_groq_fails(self):
-        fallback_result = {"content": "Fallback!", "provider": "gemini", "model": "gemini-1.5-flash"}
+        fallback_result = {"content": "Fallback!", "provider": "gemini", "model": "gemini-1.5-flash-latest"}
 
         with patch.object(self.router, "_get_user_config", return_value=("groq", None, "trial")), \
              patch.dict(os.environ, {"GROQ_API_KEY": "key", "GEMINI_API_KEY": "key2"}), \
@@ -472,7 +472,7 @@ class TestCheckProvider:
         self.router = AIRouter()
 
     def test_healthy_provider(self):
-        mock_result = {"content": "Hello", "provider": "gemini", "model": "gemini-1.5-flash"}
+        mock_result = {"content": "Hello", "provider": "gemini", "model": "gemini-1.5-flash-latest"}
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": "key"}), \
              patch.object(self.router, "_call_gemini", new_callable=AsyncMock, return_value=mock_result):
@@ -481,7 +481,7 @@ class TestCheckProvider:
 
         assert result["status"] == "healthy"
         assert result["provider"] == "gemini"
-        assert result["model"] == "gemini-1.5-flash"
+        assert result["model"] == "gemini-1.5-flash-latest"
 
     def test_unhealthy_provider(self):
         with patch.dict(os.environ, {"GROQ_API_KEY": "key"}), \

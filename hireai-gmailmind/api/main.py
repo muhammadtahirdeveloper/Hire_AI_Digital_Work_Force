@@ -15,6 +15,7 @@ import logging
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from api.routes import agent, auth, config, hr_routes, orchestrator_routes, reports, security_routes
 from api.routes.security_dashboard import router as security_dashboard_router
@@ -91,6 +92,34 @@ app.include_router(ecommerce_router)  # Prefix /ecommerce defined in router
 # Frontend integration routes
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(frontend_router, prefix="/api", tags=["Frontend"])
+
+
+# ============================================================================
+# Startup: ensure action_logs schema is up to date
+# ============================================================================
+
+
+@app.on_event("startup")
+async def ensure_action_logs_schema():
+    """Add missing columns to action_logs if the table exists."""
+    try:
+        from config.database import SessionLocal
+        db = SessionLocal()
+        try:
+            for col in [
+                "user_id VARCHAR(255)",
+                "email_subject VARCHAR(500)",
+            ]:
+                try:
+                    db.execute(text(f"ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS {col}"))
+                except Exception:
+                    pass
+            db.commit()
+            logger.info("action_logs schema migration complete")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("action_logs migration skipped (non-fatal): %s", exc)
 
 
 # ============================================================================

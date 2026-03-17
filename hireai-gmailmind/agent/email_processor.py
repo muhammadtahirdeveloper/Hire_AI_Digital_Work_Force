@@ -209,11 +209,12 @@ class EmailProcessor:
                 db.execute(
                     text("""
                         INSERT INTO action_logs
-                            (email_from, action_taken, tool_used, outcome, metadata, timestamp)
+                            (user_id, email_from, action_taken, tool_used, outcome, metadata, timestamp)
                         VALUES
-                            (:from_addr, :action, :tool, :outcome, :meta::jsonb, NOW())
+                            (:uid, :from_addr, :action, :tool, :outcome, CAST(:meta AS jsonb), NOW())
                     """),
                     {
+                        "uid": self.user_id,
                         "from_addr": sender_email,
                         "action": decision.get("action", "unknown"),
                         "tool": f"{decision.get('provider', 'unknown')}/{decision.get('model', 'unknown')}",
