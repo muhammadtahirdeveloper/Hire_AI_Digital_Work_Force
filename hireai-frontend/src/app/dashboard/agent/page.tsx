@@ -245,6 +245,38 @@ export default function AgentManagementPage() {
     }
   }, [agentStatus]);
 
+  // Load existing config from backend on mount
+  useEffect(() => {
+    api
+      .get("/api/agent/config")
+      .then((res) => {
+        const cfg = res.data?.data ?? res.data;
+        if (cfg && typeof cfg === "object") {
+          setConfig((prev) => ({
+            ...prev,
+            businessName: cfg.business_name ?? cfg.businessName ?? prev.businessName,
+            userName: cfg.user_name ?? cfg.userName ?? prev.userName,
+            businessDescription: cfg.business_description ?? cfg.businessDescription ?? prev.businessDescription,
+            replyLanguage: cfg.reply_language ?? cfg.replyLanguage ?? prev.replyLanguage,
+            replyTone: cfg.reply_tone ?? cfg.replyTone ?? prev.replyTone,
+            workingHoursFrom: cfg.working_hours_from ?? cfg.working_hours?.from ?? prev.workingHoursFrom,
+            workingHoursTo: cfg.working_hours_to ?? cfg.working_hours?.to ?? prev.workingHoursTo,
+            timezone: cfg.timezone ?? prev.timezone,
+            whatsappNumber: cfg.whatsapp_number ?? cfg.whatsappNumber ?? prev.whatsappNumber,
+            blacklist: cfg.blacklist ?? prev.blacklist,
+            whitelist: cfg.whitelist ?? prev.whitelist,
+            blockedKeywords: cfg.blocked_keywords ?? cfg.blockedKeywords ?? prev.blockedKeywords,
+            escalationKeywords: cfg.escalation_keywords ?? cfg.escalationKeywords ?? prev.escalationKeywords,
+            escalationEmail: cfg.escalation_email ?? cfg.escalationEmail ?? prev.escalationEmail,
+            testMode: cfg.test_mode ?? prev.testMode,
+            autoSend: cfg.auto_send ?? cfg.autoSend ?? prev.autoSend,
+            maxEmailsPerDay: cfg.max_emails_per_day ?? cfg.maxEmailsPerDay ?? prev.maxEmailsPerDay,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const updateConfig = (partial: Partial<AgentConfig>) => {
     setConfig((prev) => ({ ...prev, ...partial }));
   };
@@ -317,6 +349,16 @@ export default function AgentManagementPage() {
       toast.success("Agent paused");
     } catch {
       toast.error("Failed to pause agent");
+    }
+  };
+
+  const handleResumeAgent = async () => {
+    try {
+      await api.post("/api/agent/resume");
+      mutateAgent();
+      toast.success("Agent resumed");
+    } catch {
+      toast.error("Failed to resume agent");
     }
   };
 
@@ -966,19 +1008,34 @@ export default function AgentManagementPage() {
           <CardBody className="space-y-4 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-text">Pause Agent</p>
+                <p className="text-sm font-medium text-text">
+                  {agentStatus?.is_paused ? "Resume Agent" : "Pause Agent"}
+                </p>
                 <p className="text-xs text-text-3">
-                  Stops processing emails. You can resume anytime.
+                  {agentStatus?.is_paused
+                    ? "Agent is paused. Click to resume processing emails."
+                    : "Stops processing emails. You can resume anytime."}
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePauseAgent}
-                leftIcon={<Pause className="h-4 w-4" />}
-              >
-                Pause
-              </Button>
+              {agentStatus?.is_paused ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResumeAgent}
+                  leftIcon={<RotateCcw className="h-4 w-4" />}
+                >
+                  Resume
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePauseAgent}
+                  leftIcon={<Pause className="h-4 w-4" />}
+                >
+                  Pause
+                </Button>
+              )}
             </div>
 
             <hr className="border-border" />

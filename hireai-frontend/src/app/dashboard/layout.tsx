@@ -17,14 +17,46 @@ export default function DashboardLayout({
 
   // Sync backend JWT from NextAuth session to localStorage (for Google login)
   useEffect(() => {
-    const existing = getAuthToken();
-    if (!existing && session) {
-      const backendToken = (session as unknown as Record<string, unknown>).accessToken as string;
-      if (backendToken) {
-        setAuthToken(backendToken);
-      }
+    if (!session?.user?.email) return;
+
+    // If we already have a token, skip
+    const existingToken = getAuthToken();
+    if (existingToken) return;
+
+    // Try to pull token from NextAuth session first
+    const backendToken = (session as unknown as Record<string, unknown>).accessToken as string;
+    if (backendToken) {
+      setAuthToken(backendToken);
+      return;
     }
-  }, [session]);
+
+    // Fallback: fetch fresh token from backend
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!apiUrl) return;
+
+    fetch(`${apiUrl}/auth/google-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: session.user.email,
+        name: session.user.name || "",
+        image: session.user.image || "",
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const token =
+          data?.data?.token ||
+          data?.data?.access_token ||
+          data?.token ||
+          data?.access_token;
+        if (token) {
+          setAuthToken(token);
+          window.location.reload();
+        }
+      })
+      .catch((e) => console.error("Token sync failed:", e));
+  }, [session?.user?.email]);
 
   if (status === "loading") {
     return <PageLoader />;

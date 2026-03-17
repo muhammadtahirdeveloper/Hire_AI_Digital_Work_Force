@@ -52,6 +52,19 @@ api.interceptors.request.use((config) => {
 });
 
 /**
+ * Interceptor: clear token on 401 responses
+ */
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      removeAuthToken();
+    }
+    return Promise.reject(error);
+  }
+);
+
+/**
  * API error handler
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

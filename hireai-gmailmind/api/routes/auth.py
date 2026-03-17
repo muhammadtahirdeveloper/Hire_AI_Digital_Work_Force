@@ -471,6 +471,22 @@ async def google_login(body: GoogleLoginRequest):
                 )
                 db.commit()
 
+            # Also upsert user_agents so dashboard queries work immediately
+            _ensure_user_agents_table(db)
+            db.execute(
+                text("""
+                    INSERT INTO user_agents
+                        (user_id, agent_type, ai_provider,
+                         gmail_email, model, is_paused, config)
+                    VALUES
+                        (:uid, 'general', 'gemini',
+                         :email, 'gemini', false, '{}')
+                    ON CONFLICT (user_id) DO NOTHING
+                """),
+                {"uid": user_id, "email": body.email.lower()},
+            )
+            db.commit()
+
             logger.info("Google user upserted: %s", body.email)
             token = _create_jwt(user_id, body.email.lower(), body.name or "")
             return _ok({"user_id": user_id, "token": token, "access_token": token})
@@ -1012,7 +1028,7 @@ async def save_setup(body: SetupRequest):
                          gmail_email, model, config, is_paused)
                     VALUES
                         (:uid, :agent_type, :ai_provider, :ai_api_key,
-                         :gmail, :model, :config::jsonb, false)
+                         :gmail, :model, CAST(:config AS jsonb), false)
                     ON CONFLICT (user_id) DO UPDATE SET
                         agent_type = EXCLUDED.agent_type,
                         ai_provider = EXCLUDED.ai_provider,

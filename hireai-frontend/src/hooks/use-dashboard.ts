@@ -37,7 +37,8 @@ export interface DailyVolume {
 export function useDashboardStats() {
   return useSWR<DashboardStats>("/api/dashboard/stats", fetcher, {
     refreshInterval: REFRESH_INTERVAL,
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
   });
 }
 
@@ -47,7 +48,8 @@ export function useRecentEmails(limit = 10) {
     fetcher,
     {
       refreshInterval: REFRESH_INTERVAL,
-      revalidateOnFocus: true,
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
     }
   );
 }
@@ -55,19 +57,24 @@ export function useRecentEmails(limit = 10) {
 export function useAgentStatus() {
   return useSWR<AgentStatus>("/api/agent/status", fetcher, {
     refreshInterval: REFRESH_INTERVAL,
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
   });
 }
 
 export function useWeeklySummary() {
   return useSWR<WeeklySummary>("/api/dashboard/weekly-summary", fetcher, {
     refreshInterval: 60_000,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
   });
 }
 
 export function useDailyVolume() {
   return useSWR<DailyVolume[]>("/api/dashboard/daily-volume", fetcher, {
     refreshInterval: 60_000,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
   });
 }
 
@@ -77,6 +84,8 @@ export function useEscalatedEmails() {
     fetcher,
     {
       refreshInterval: REFRESH_INTERVAL,
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
     }
   );
 }
@@ -94,7 +103,8 @@ export interface ProviderHealth {
 export function useProviderHealth() {
   return useSWR<ProviderHealth>("/api/agent/provider-health", fetcher, {
     refreshInterval: 60_000,
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
   });
 }
 
@@ -137,13 +147,15 @@ export interface AdminHealth {
 export function useHealthStatus() {
   return useSWR<HealthStatus>("/api/health/user", fetcher, {
     refreshInterval: 60_000,
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
   });
 }
 
 export function useAdminHealth() {
   return useSWR<AdminHealth>("/api/admin/health", fetcher, {
     refreshInterval: 60_000,
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
   });
 }

@@ -5,6 +5,7 @@ email listing, agent control, health checks, support chat, reviews,
 billing, user profile, Gmail management, and database configuration.
 """
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -166,20 +167,30 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
 
 class AgentConfigUpdate(BaseModel):
     business_name: Optional[str] = None
+    user_name: Optional[str] = None
     your_name: Optional[str] = None
+    business_description: Optional[str] = None
     reply_language: Optional[str] = None
     reply_tone: Optional[str] = None
+    working_hours_enabled: Optional[bool] = None
     working_hours_from: Optional[str] = None
     working_hours_to: Optional[str] = None
-    working_days: Optional[list[str]] = None
+    working_days: Optional[list] = None
+    timezone: Optional[str] = None
+    queue_outside_hours: Optional[bool] = None
+    categories: Optional[list] = None
+    blacklist: Optional[str] = None
     blacklist_emails: Optional[list[str]] = None
+    whitelist: Optional[str] = None
     whitelist_emails: Optional[list[str]] = None
-    blocked_keywords: Optional[list[str]] = None
+    blocked_keywords: Optional[str] = None
     whatsapp_number: Optional[str] = None
-    escalation_keywords: Optional[list[str]] = None
+    escalation_keywords: Optional[str] = None
+    escalation_email: Optional[str] = None
     test_mode: Optional[bool] = None
     auto_send: Optional[bool] = None
     max_emails_per_day: Optional[int] = None
+    review_high_priority: Optional[bool] = None
     review_before_send: Optional[bool] = None
     tier: Optional[str] = None
     agent_type: Optional[str] = None
@@ -223,20 +234,28 @@ async def update_agent_config(
             # Update specific fields if they exist as columns
             for field in ["tier", "agent_type", "test_mode"]:
                 if field in updates:
+                    val = updates.pop(field)
                     db.execute(
-                        text(f"UPDATE user_agents SET {field} = :val WHERE user_id = :uid"),
-                        {"val": updates.pop(field), "uid": user_id},
+                        text(f"UPDATE user_agents SET {field} = :val, updated_at = NOW() WHERE user_id = :uid"),
+                        {"val": val, "uid": user_id},
                     )
+                    # Sync tier to users table too
+                    if field == "tier":
+                        email = user.get("email", "")
+                        db.execute(
+                            text("UPDATE users SET tier = :tier WHERE id = :uid OR email = :email"),
+                            {"tier": val, "uid": user_id, "email": email.lower() if email else ""},
+                        )
 
             # Remaining fields go into config JSONB
             if updates:
                 db.execute(
                     text("""
                         UPDATE user_agents
-                        SET config = COALESCE(config, '{}'::jsonb) || :cfg::jsonb
+                        SET config = COALESCE(config, '{}'::jsonb) || CAST(:cfg AS jsonb)
                         WHERE user_id = :uid
                     """),
-                    {"cfg": str(updates).replace("'", '"'), "uid": user_id},
+                    {"cfg": json.dumps(updates, default=str), "uid": user_id},
                 )
             db.commit()
             return _ok({"message": "Configuration updated"})
@@ -301,7 +320,7 @@ async def pause_agent(user: dict = Depends(get_current_user)):
         db = SessionLocal()
         try:
             db.execute(
-                text("UPDATE user_agents SET is_paused = true WHERE user_id = :uid"),
+                text("UPDATE user_agents SET is_paused = true, updated_at = NOW() WHERE user_id = :uid"),
                 {"uid": user_id},
             )
             db.commit()
@@ -309,7 +328,7 @@ async def pause_agent(user: dict = Depends(get_current_user)):
             db.close()
     except Exception:
         pass
-    return _ok({"message": "Agent paused"})
+    return _ok({"success": True, "status": "paused", "message": "Agent paused"})
 
 
 @router.post("/agent/resume")
@@ -320,7 +339,7 @@ async def resume_agent(user: dict = Depends(get_current_user)):
         db = SessionLocal()
         try:
             db.execute(
-                text("UPDATE user_agents SET is_paused = false WHERE user_id = :uid"),
+                text("UPDATE user_agents SET is_paused = false, updated_at = NOW() WHERE user_id = :uid"),
                 {"uid": user_id},
             )
             db.commit()
@@ -328,7 +347,7 @@ async def resume_agent(user: dict = Depends(get_current_user)):
             db.close()
     except Exception:
         pass
-    return _ok({"message": "Agent resumed"})
+    return _ok({"success": True, "status": "active", "message": "Agent resumed"})
 
 
 @router.post("/agent/restart")
@@ -1328,10 +1347,44 @@ async def get_billing_history(user: dict = Depends(get_current_user)):
     return _ok([])
 
 
+class ChangePlanRequest(BaseModel):
+    plan: Optional[str] = None
+    tier: Optional[str] = None
+
+
 @router.post("/billing/change-plan")
-async def change_plan(user: dict = Depends(get_current_user)):
+async def change_plan(
+    body: ChangePlanRequest,
+    user: dict = Depends(get_current_user),
+):
     """Change billing plan."""
-    return _ok({"message": "Plan change initiated"})
+    user_id = user.get("sub", "")
+    email = user.get("email", "")
+    new_tier = body.plan or body.tier
+    if not new_tier:
+        return _err("Plan is required")
+
+    try:
+        db = SessionLocal()
+        try:
+            # Update users table
+            db.execute(
+                text("UPDATE users SET tier = :tier WHERE id = :uid OR email = :email"),
+                {"tier": new_tier, "uid": user_id, "email": email.lower() if email else ""},
+            )
+            # Update user_agents table
+            db.execute(
+                text("UPDATE user_agents SET tier = :tier, updated_at = NOW() WHERE user_id = :uid"),
+                {"tier": new_tier, "uid": user_id},
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Change plan failed: %s", exc)
+        return _err(f"Failed to change plan: {exc}")
+
+    return _ok({"message": "Plan changed", "tier": new_tier})
 
 
 @router.post("/billing/cancel")
