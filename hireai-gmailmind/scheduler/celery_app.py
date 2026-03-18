@@ -60,10 +60,10 @@ app.conf.update(
 
 app.conf.beat_schedule = {
     # --- Main agent loop: runs every POLL_INTERVAL_SECONDS ---
+    # Dispatcher queries all active users and fans out per-user tasks.
     "run-gmailmind-agent-loop": {
-        "task": "scheduler.tasks.run_gmailmind_for_user",
+        "task": "scheduler.tasks.run_gmailmind_all_users",
         "schedule": POLL_INTERVAL_SECONDS,
-        "args": ("default",),             # user_id; multi-user: one entry per user
         "options": {"queue": "agent"},
     },
 

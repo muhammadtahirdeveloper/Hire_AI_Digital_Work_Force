@@ -97,6 +97,67 @@ def _set_agent_status(user_id: str, status: str, error_msg: str = "") -> None:
 
 
 # ============================================================================
+# Task 0 — Dispatcher: query all active users and fan out per-user tasks
+# ============================================================================
+
+
+@app.task(bind=True, name="scheduler.tasks.run_gmailmind_all_users")
+def run_gmailmind_all_users(self) -> dict[str, Any]:
+    """Query all active, non-paused users and dispatch a per-user task for each.
+
+    This is the task that Celery Beat calls on every polling interval.
+    It fans out individual ``run_gmailmind_for_user`` tasks so each user
+    gets their own task (independent failure, parallel if concurrency > 1).
+    """
+    print("=== DISPATCHER: run_gmailmind_all_users STARTED ===")
+    logger.info("=== DISPATCHER: run_gmailmind_all_users STARTED ===")
+
+    try:
+        db = SessionLocal()
+        try:
+            rows = db.execute(
+                text("""
+                    SELECT u.id, u.email
+                    FROM users u
+                    JOIN user_agents ua ON ua.user_id = CAST(u.id AS VARCHAR)
+                    WHERE u.setup_complete = true
+                      AND u.is_active = true
+                      AND ua.is_paused = false
+                """)
+            ).fetchall()
+        finally:
+            db.close()
+
+        if not rows:
+            logger.info("[run_gmailmind_all_users] No active users found.")
+            return {"status": "no_users", "dispatched": 0}
+
+        dispatched = []
+        for row in rows:
+            uid = str(row[0])
+            email = row[1] if len(row) > 1 else "unknown"
+            logger.info("[run_gmailmind_all_users] Dispatching task for user=%s (%s)", uid, email)
+            run_gmailmind_for_user.apply_async(
+                args=(uid,),
+                queue="agent",
+            )
+            dispatched.append(uid)
+
+        logger.info(
+            "=== DISPATCHER: dispatched %d user tasks: %s ===",
+            len(dispatched), dispatched,
+        )
+        return {"status": "dispatched", "dispatched": len(dispatched), "user_ids": dispatched}
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        logger.error(
+            "=== DISPATCHER FAILED ===\n%s", tb,
+        )
+        return {"status": "error", "error": f"{type(exc).__name__}: {exc}", "traceback": tb}
+
+
+# ============================================================================
 # Task 1 — Run the GmailMind agent loop for a single user
 # ============================================================================
 
