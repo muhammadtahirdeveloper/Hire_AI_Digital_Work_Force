@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 # Ensure Celery worker actually outputs our logs
 logging.basicConfig(level=logging.INFO)
 
+# --- Module-load confirmation (visible even if task never executes) ---
+print("=== TASKS MODULE LOADED ===")
+logger.info("=== TASKS MODULE LOADED ===")
+
 
 # ============================================================================
 # Agent status helpers  (status stored in DB table ``agent_status``)
@@ -110,6 +114,10 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
     Returns:
         A dict with ``status``, ``duration_s``, and summary counts.
     """
+    # Unconditional print — bypasses any logging misconfiguration
+    print(f"=== TASK EXECUTING user_id={user_id} ===")
+    logger.info("=== TASK EXECUTING user_id=%s ===", user_id)
+
     start = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat()
 
