@@ -107,11 +107,19 @@ def _build_credentials_from_db(user_id: str):
         expiry=expiry,
     )
 
-    # Force refresh if the token looks expired even when the library can't tell
+    # Force refresh if the token looks expired even when the library can't tell.
+    # Normalise both sides to naive UTC to avoid offset-naive vs offset-aware errors.
+    now_utc_naive = datetime.utcnow()
+    expiry_naive = None
+    if expiry is not None:
+        expiry_naive = (
+            expiry.astimezone(timezone.utc).replace(tzinfo=None)
+            if expiry.tzinfo is not None
+            else expiry
+        )
+
     needs_refresh = creds.expired or (
-        expiry is not None
-        and expiry.replace(tzinfo=timezone.utc)
-        <= datetime.now(timezone.utc)
+        expiry_naive is not None and expiry_naive <= now_utc_naive
     )
 
     if needs_refresh and creds.refresh_token:

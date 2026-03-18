@@ -64,10 +64,15 @@ def build_credentials(
         scopes=GMAIL_SCOPES,
     )
 
-    # Set expiry so credentials.expired can detect stale tokens
+    # Set expiry so credentials.expired can detect stale tokens.
+    # Google's auth library compares expiry with datetime.utcnow() which
+    # returns a NAIVE datetime.  We must store expiry as naive UTC,
+    # otherwise Python raises:
+    #   "can't compare offset-naive and offset-aware datetimes"
     if expiry is not None:
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry.tzinfo is not None:
+            # Convert to UTC first, then strip tzinfo → naive UTC
+            expiry = expiry.astimezone(timezone.utc).replace(tzinfo=None)
         creds.expiry = expiry
         creds.token = token  # ensure token is set even with expiry
 
