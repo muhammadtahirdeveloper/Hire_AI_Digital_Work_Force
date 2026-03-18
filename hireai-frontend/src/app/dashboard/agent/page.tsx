@@ -372,6 +372,25 @@ export default function AgentManagementPage() {
     }
   };
 
+  // Listen for Gmail OAuth popup callback
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === "gmail-connected") {
+        mutateAgent();
+        toast.success("Gmail account connected successfully");
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [mutateAgent]);
+
+  const handleChangeGmail = () => {
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const email = session?.user?.email || "";
+    const oauthUrl = `${backendUrl}/auth/google?setup=true&email=${encodeURIComponent(email)}`;
+    window.open(oauthUrl, "_blank", "width=500,height=600");
+  };
+
   return (
     <div className="space-y-8 pt-4 lg:pt-0">
       <div>
@@ -968,7 +987,7 @@ export default function AgentManagementPage() {
                     <AlertTriangle className="mr-1 h-3 w-3" /> Disconnected
                   </Badge>
                 )}
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" onClick={handleChangeGmail}>
                   {agentStatus?.gmail_valid ? "Change Gmail" : "Reconnect"}
                 </Button>
               </div>
