@@ -134,28 +134,64 @@ export default function EmailLogPage() {
   const total = data?.total || 0;
   const totalPages = data?.pages || 1;
 
-  const handleExportCSV = useCallback(() => {
-    if (!emails.length) return;
+  const handleExportCSV = useCallback(async () => {
+    try {
+      // Fetch ALL emails (up to 10000) for export, not just current page
+      const exportParams = new URLSearchParams({
+        page: "1",
+        limit: "10000",
+        ...(search && { search }),
+        ...(dateRange !== "all" && { period: dateRange }),
+        ...(category !== "All" && { category }),
+        ...(action !== "all" && { action }),
+      });
+      const res = await api.get(`/api/emails?${exportParams}`);
+      const allEmails: EmailEntry[] = res.data?.data?.emails || res.data?.emails || emails;
 
-    const headers = ["From", "Email", "Subject", "Category", "Action", "Time"];
-    const rows = emails.map((e) => [
-      e.from_name || e.from,
-      e.from_email || e.from,
-      `"${(e.subject || "").replace(/"/g, '""')}"`,
-      e.category || "",
-      actionBadgeMap[e.action]?.label || e.action || "",
-      e.timestamp ? new Date(e.timestamp).toLocaleString() : "",
-    ]);
+      if (!allEmails.length) return;
 
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `hireai-emails-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [emails]);
+      const headers = ["Date", "Sender", "Subject", "Category", "Action", "Status"];
+      const escapeCSV = (val: string) => `"${(val || "").replace(/"/g, '""')}"`;
+      const rows = allEmails.map((e) => [
+        e.timestamp ? new Date(e.timestamp).toLocaleString() : "",
+        escapeCSV(e.from_name || e.from_email || e.from || ""),
+        escapeCSV(e.subject || ""),
+        escapeCSV(e.category || ""),
+        escapeCSV(actionBadgeMap[e.action]?.label || e.action || ""),
+        escapeCSV("Processed"),
+      ]);
+
+      const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hireai-emails-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Fallback to current page data
+      if (!emails.length) return;
+      const headers = ["Date", "Sender", "Subject", "Category", "Action", "Status"];
+      const escapeCSV = (val: string) => `"${(val || "").replace(/"/g, '""')}"`;
+      const rows = emails.map((e) => [
+        e.timestamp ? new Date(e.timestamp).toLocaleString() : "",
+        escapeCSV(e.from_name || e.from_email || e.from || ""),
+        escapeCSV(e.subject || ""),
+        escapeCSV(e.category || ""),
+        escapeCSV(actionBadgeMap[e.action]?.label || e.action || ""),
+        escapeCSV("Processed"),
+      ]);
+      const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hireai-emails-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [emails, search, dateRange, category, action]);
 
   const startItem = (page - 1) * PAGE_SIZE + 1;
   const endItem = Math.min(page * PAGE_SIZE, total);

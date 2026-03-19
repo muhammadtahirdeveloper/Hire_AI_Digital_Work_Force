@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
 type AgentType = "general" | "hr" | "real_estate" | "ecommerce";
-type AiModel = "gemini" | "groq" | "openai" | "claude";
+type AiModel = "groq" | "openai" | "claude";
 
 interface SetupData {
   gmailAddress: string;
@@ -78,18 +78,10 @@ const tones = [
 
 const aiModels = [
   {
-    id: "gemini" as AiModel,
-    icon: Zap,
-    label: "Google Gemini",
-    description: "Fast and free — great for getting started",
-    tag: "Free",
-    free: true,
-  },
-  {
     id: "groq" as AiModel,
-    icon: Bot,
+    icon: Zap,
     label: "Groq (Llama)",
-    description: "Ultra-fast inference, free tier",
+    description: "Ultra-fast inference, free tier — great for getting started",
     tag: "Free",
     free: true,
   },
@@ -123,7 +115,7 @@ export function SetupWizard() {
     gmailAddress: "",
     gmailConnected: false,
     agentType: null,
-    aiModel: "gemini",
+    aiModel: "groq",
     aiApiKey: "",
     businessName: "",
     userName: "",

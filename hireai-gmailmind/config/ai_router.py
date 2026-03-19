@@ -40,14 +40,13 @@ class AIRouter:
         "groq": "_call_groq_with_retry",
         "claude": "_call_claude",
         "openai": "_call_openai",
-        "gemini": "_call_gemini",
     }
 
     # Managed providers (HireAI provides the key)
     MANAGED_PROVIDERS = {"groq", "claude"}
 
     # BYOK-only providers (user must provide their own key)
-    BYOK_PROVIDERS = {"openai", "gemini"}
+    BYOK_PROVIDERS = {"openai"}
 
     # Tiers that can use Claude (paid)
     PAID_TIERS = {"tier2", "tier3"}
@@ -83,13 +82,6 @@ class AIRouter:
             "tier2": "gpt-4o",
             "tier3": "gpt-4o",
         },
-        "gemini": {
-            "default": "gemini-2.0-flash",
-            "trial": "gemini-2.0-flash",
-            "tier1": "gemini-2.0-flash",
-            "tier2": "gemini-1.5-pro",
-            "tier3": "gemini-1.5-pro",
-        },
     }
 
     # Env var name for each provider's managed API key
@@ -97,7 +89,6 @@ class AIRouter:
         "groq": "GROQ_API_KEY",
         "claude": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
-        "gemini": "GEMINI_API_KEY",
     }
 
     # ------------------------------------------------------------------ #
@@ -218,7 +209,7 @@ class AIRouter:
         - trial/tier1: groq only (unless BYOK with own key)
         - tier2: claude (Haiku) by default
         - tier3: claude (Sonnet) by default
-        - BYOK providers (openai, gemini) allowed for any tier if user has key
+        - BYOK providers (openai) allowed for any tier if user has key
         """
         # If provider is BYOK-only, user must have provided a key — allow it
         # (key check happens later in _resolve_key)
@@ -260,31 +251,6 @@ class AIRouter:
     # ------------------------------------------------------------------ #
     # Provider implementations
     # ------------------------------------------------------------------ #
-
-    async def _call_gemini(
-        self, system_prompt: str, user_message: str,
-        api_key: str, model: str,
-        max_tokens: int, temperature: float,
-    ) -> dict:
-        """Call Google Gemini API."""
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        gm = genai.GenerativeModel(model)
-
-        prompt = f"{system_prompt}\n\nUser message:\n{user_message}"
-        response = gm.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-            ),
-        )
-        return {
-            "content": response.text,
-            "provider": "gemini",
-            "model": model,
-        }
 
     async def _call_groq(
         self, system_prompt: str, user_message: str,

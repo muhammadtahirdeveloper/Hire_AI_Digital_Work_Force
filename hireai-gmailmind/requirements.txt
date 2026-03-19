@@ -1,7 +1,6 @@
 openai-agents
 openai
 anthropic
-google-generativeai
 groq
 fastapi
 uvicorn

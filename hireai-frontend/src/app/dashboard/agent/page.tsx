@@ -88,7 +88,7 @@ const tierCards = [
     id: "tier1",
     name: "Starter",
     price: 9,
-    model: "Gemini / Groq (Free APIs)",
+    model: "Groq llama-3.1-8b-instant (Free)",
     popular: false,
   },
   {
@@ -118,12 +118,12 @@ function getModelForTier(tier: string): { name: string; provider: string } {
       return { name: "Claude Sonnet 4.5", provider: "Anthropic" };
     default:
       // trial, starter, tier1
-      return { name: "Gemini 1.5 Flash (Free)", provider: "Google Gemini" };
+      return { name: "Groq llama-3.1-8b-instant (Free)", provider: "Groq" };
   }
 }
 
 const modelDescriptions: Record<string, string> = {
-  "Gemini 1.5 Flash (Free)": "Fast and cost-effective for routine email classification and quick replies. Powered by Google Gemini free tier.",
+  "Groq llama-3.1-8b-instant (Free)": "Ultra-fast inference for routine email classification and quick replies. Powered by Groq free tier.",
   "Claude Haiku 3.5": "Fast and efficient for routine email classification and quick replies. Great for high-volume processing.",
   "Claude Sonnet 4.5": "Advanced reasoning for complex emails, nuanced replies, and accurate classification across all categories.",
 };
@@ -268,9 +268,14 @@ export default function AgentManagementPage() {
             blockedKeywords: cfg.blocked_keywords ?? cfg.blockedKeywords ?? prev.blockedKeywords,
             escalationKeywords: cfg.escalation_keywords ?? cfg.escalationKeywords ?? prev.escalationKeywords,
             escalationEmail: cfg.escalation_email ?? cfg.escalationEmail ?? prev.escalationEmail,
+            workingHoursEnabled: cfg.working_hours_enabled ?? cfg.workingHoursEnabled ?? prev.workingHoursEnabled,
+            workingDays: cfg.working_days ?? cfg.workingDays ?? prev.workingDays,
+            queueOutsideHours: cfg.queue_outside_hours ?? cfg.queueOutsideHours ?? prev.queueOutsideHours,
+            categories: cfg.categories ?? prev.categories,
             testMode: cfg.test_mode ?? prev.testMode,
             autoSend: cfg.auto_send ?? cfg.autoSend ?? prev.autoSend,
             maxEmailsPerDay: cfg.max_emails_per_day ?? cfg.maxEmailsPerDay ?? prev.maxEmailsPerDay,
+            reviewHighPriority: cfg.review_high_priority ?? cfg.reviewHighPriority ?? prev.reviewHighPriority,
           }));
         }
       })
@@ -972,23 +977,29 @@ export default function AgentManagementPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-text">
-                    {agentStatus?.gmail_connected || "No Gmail connected"}
+                    {agentStatus?.gmail_connected
+                      ? agentStatus.gmail_connected
+                      : "No Gmail connected"}
                   </p>
-                  <p className="text-xs text-text-4">Monitoring Gmail</p>
+                  <p className="text-xs text-text-4">
+                    {agentStatus?.gmail_connected
+                      ? "Monitoring Gmail"
+                      : "Connect a Gmail account to start"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {agentStatus?.gmail_valid ? (
+                {agentStatus?.gmail_connected ? (
                   <Badge variant="success">
                     <CheckCircle2 className="mr-1 h-3 w-3" /> Connected
                   </Badge>
                 ) : (
                   <Badge variant="danger">
-                    <AlertTriangle className="mr-1 h-3 w-3" /> Disconnected
+                    <AlertTriangle className="mr-1 h-3 w-3" /> Not Connected
                   </Badge>
                 )}
                 <Button variant="outline" size="sm" onClick={handleChangeGmail}>
-                  {agentStatus?.gmail_valid ? "Change Gmail" : "Reconnect"}
+                  {agentStatus?.gmail_connected ? "Change Gmail" : "Connect Gmail"}
                 </Button>
               </div>
             </div>
@@ -1118,6 +1129,12 @@ export default function AgentManagementPage() {
                           await api.delete("/api/account");
                           toast.success("Account deleted");
                           setDeleteModalOpen(false);
+                          // Clear all session/auth data
+                          localStorage.clear();
+                          sessionStorage.clear();
+                          document.cookie.split(";").forEach((c) => {
+                            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+                          });
                           window.location.href = "/";
                         } catch {
                           toast.error("Failed to delete account");

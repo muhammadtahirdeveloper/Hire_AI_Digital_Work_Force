@@ -213,8 +213,8 @@ class TestLog:
         email = {"id": "msg_log", "subject": "Test", "sender": {"email": "log@test.com"}}
         decision = {
             "action": "AUTO_REPLY",
-            "provider": "gemini",
-            "model": "gemini-1.5-flash-latest",
+            "provider": "groq",
+            "model": "llama-3.1-8b-instant",
             "category": "inquiry",
         }
 
@@ -304,8 +304,8 @@ class TestProcessInbox:
         mock_agent.process_email = AsyncMock(return_value={
             "action": "AUTO_REPLY",
             "ai_response": "REPLY: I'm great, thanks!",
-            "provider": "gemini",
-            "model": "gemini-1.5-flash-latest",
+            "provider": "groq",
+            "model": "llama-3.1-8b-instant",
             "category": "general",
         })
 
@@ -320,7 +320,7 @@ class TestProcessInbox:
         assert result["processed"] == 1
         assert result["total"] == 1
         assert result["results"][0]["action"] == "AUTO_REPLY"
-        assert result["results"][0]["provider"] == "gemini"
+        assert result["results"][0]["provider"] == "groq"
 
     def test_processing_error_captured(self):
         p = _make_processor("user_error")

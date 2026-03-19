@@ -16,12 +16,12 @@ const plans = [
     name: "Starter",
     price: 9,
     badge: "Best for Testing",
-    model: "Gemini / Groq (Free)",
+    model: "Groq Llama (Free)",
     tagline: "Free API models with optional BYOK",
     popular: false,
     features: [
       { text: "500 emails per month", included: true },
-      { text: "Free API (Gemini/Groq) — HireAI managed", included: true },
+      { text: "Free API (Groq) — HireAI managed", included: true },
       { text: "Optional BYOK any provider", included: true },
       { text: "1 agent (your choice)", included: true },
       { text: "Auto email classification", included: true },
@@ -87,7 +87,7 @@ const comparisonFeatures = [
   { feature: "Monthly emails", starter: "500", professional: "5,000", enterprise: "Unlimited" },
   { feature: "Gmail accounts", starter: "1", professional: "2", enterprise: "Unlimited" },
   { feature: "Agent types", starter: "1", professional: "All 4", enterprise: "All 4" },
-  { feature: "AI model", starter: "Gemini/Groq (Free)", professional: "Claude Haiku", enterprise: "Any (BYOK)" },
+  { feature: "AI model", starter: "Groq Llama (Free)", professional: "Claude Haiku", enterprise: "Any (BYOK)" },
   { feature: "BYOK option", starter: true, professional: true, enterprise: true },
   { feature: "Email classification", starter: true, professional: true, enterprise: true },
   { feature: "Reply drafts", starter: true, professional: true, enterprise: true },
@@ -112,11 +112,11 @@ const faqs = [
   },
   {
     q: "What is BYOK (Bring Your Own Key)?",
-    a: "BYOK lets you use your own API key from providers like OpenAI, Claude, Gemini, or Groq. Your key is encrypted and never shared. Enterprise BYOK pricing is $39/mo instead of $59/mo.",
+    a: "BYOK lets you use your own API key from providers like OpenAI, Claude, or Groq. Your key is encrypted and never shared. Enterprise BYOK pricing is $39/mo instead of $59/mo.",
   },
   {
     q: "What are the free API models?",
-    a: "The Starter plan includes Google Gemini and Groq models at no extra cost — managed by HireAI. These models may produce less accurate results than Claude or GPT-4 but are great for testing.",
+    a: "The Starter plan includes Groq Llama models at no extra cost — managed by HireAI. These models may produce less accurate results than Claude or GPT-4 but are great for testing.",
   },
   {
     q: "Can I switch plans?",

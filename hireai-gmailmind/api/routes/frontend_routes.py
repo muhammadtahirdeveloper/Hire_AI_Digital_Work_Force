@@ -162,6 +162,7 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
             ).fetchone()
 
             if row:
+                gmail_email = row[5] or ""
                 return _ok({
                     "is_running": not row[3],
                     "is_paused": row[3] or False,
@@ -169,8 +170,10 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
                     "agent_type": row[0] or "general",
                     "tier": row[1] or "trial",
                     "model": row[2] or "llama-3.1-8b-instant",
-                    "gmail_connected": row[5] or "",
-                    "gmail_valid": row[6] if row[6] is not None else True,
+                    "gmail_connected": gmail_email,
+                    "gmail_email": gmail_email,
+                    "is_connected": bool(gmail_email),
+                    "gmail_valid": row[6] if row[6] is not None else bool(gmail_email),
                     "last_processed": row[7].isoformat() if row[7] else None,
                     "last_error": row[8],
                 })
@@ -188,7 +191,9 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
         "tier": "trial",
         "model": "llama-3.1-8b-instant",
         "gmail_connected": "",
-        "gmail_valid": True,
+        "gmail_email": "",
+        "is_connected": False,
+        "gmail_valid": False,
         "last_processed": None,
         "last_error": None,
     })
@@ -227,17 +232,26 @@ class AgentConfigUpdate(BaseModel):
 
 @router.get("/agent/config")
 async def get_agent_config(user: dict = Depends(get_current_user)):
-    """Get agent configuration."""
+    """Get full agent configuration (columns + JSONB config)."""
     user_id = user.get("sub", "")
     try:
         db = SessionLocal()
         try:
             row = db.execute(
-                text("SELECT config FROM user_agents WHERE user_id = :uid LIMIT 1"),
+                text("""
+                    SELECT agent_type, tier, test_mode, config, gmail_email
+                    FROM user_agents WHERE user_id = :uid LIMIT 1
+                """),
                 {"uid": user_id},
             ).fetchone()
-            if row and row[0]:
-                return _ok(row[0])
+            if row:
+                config = row[3] or {}
+                # Merge column-level fields into config
+                config.setdefault("agent_type", row[0] or "general")
+                config.setdefault("tier", row[1] or "trial")
+                config.setdefault("test_mode", row[2] or False)
+                config.setdefault("gmail_email", row[4] or "")
+                return _ok(config)
         finally:
             db.close()
     except Exception:
@@ -437,7 +451,7 @@ async def force_sync(user: dict = Depends(get_current_user)):
 
 
 class AgentConfigureRequest(BaseModel):
-    ai_provider: str = "gemini"
+    ai_provider: str = "groq"
     api_key: Optional[str] = None
 
 
@@ -511,7 +525,7 @@ async def check_all_providers_health(user: dict = Depends(get_current_user)):
 
         router_instance = AIRouter()
         results = {}
-        for provider in ["gemini", "groq"]:
+        for provider in ["groq", "claude"]:
             try:
                 results[provider] = await router_instance.check_provider(provider)
             except Exception as exc:
@@ -520,8 +534,8 @@ async def check_all_providers_health(user: dict = Depends(get_current_user)):
     except Exception as exc:
         logger.error("All providers health check failed: %s", exc)
         return _ok({
-            "gemini": {"status": "error", "error": str(exc)},
             "groq": {"status": "error", "error": str(exc)},
+            "claude": {"status": "error", "error": str(exc)},
         })
 
 
@@ -547,7 +561,6 @@ async def get_available_providers(user: dict = Depends(get_current_user)):
         {"id": "groq", "name": "Groq (Llama)", "available": True, "free": True},
         {"id": "claude", "name": "Claude (Anthropic)", "available": is_paid, "free": False},
         {"id": "openai", "name": "OpenAI GPT-4", "available": True, "free": False, "byok": True},
-        {"id": "gemini", "name": "Google Gemini", "available": True, "free": False, "byok": True},
     ]
     return _ok({"providers": providers, "tier": tier})
 
@@ -1023,7 +1036,7 @@ async def delete_account(user: dict = Depends(get_current_user)):
         logger.error("Delete account failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
 
-    return _ok({"message": "Account deleted", "deleted": True})
+    return _ok({"message": "Account deleted", "deleted": True, "clear_session": True})
 
 
 @router.post("/user/complete-setup")

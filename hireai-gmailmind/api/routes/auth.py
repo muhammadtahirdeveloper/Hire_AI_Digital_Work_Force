@@ -146,7 +146,7 @@ class SetupRequest(BaseModel):
     email: str
     gmail_address: str = ""
     agent_type: str = "general"
-    ai_model: str = "gemini"
+    ai_model: str = "groq"
     ai_api_key: Optional[str] = None
     business_name: str = ""
     user_name: str = ""

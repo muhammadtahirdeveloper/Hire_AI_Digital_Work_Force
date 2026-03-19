@@ -56,7 +56,7 @@ const sections = [
   {
     title: "6. Free API Terms",
     content: [
-      "The Starter plan includes access to free AI models (Google Gemini, Groq) managed by HireAI at no additional cost.",
+      "The Starter plan includes access to free AI models (Groq) managed by HireAI at no additional cost.",
       "Free models may produce less accurate results compared to premium models like Claude or GPT-4. HireAI is not responsible for the quality of free model outputs.",
       "Availability of free API models depends on third-party providers and may change without notice.",
       "Free model usage is subject to rate limits imposed by the respective providers. If limits are reached, your agent may temporarily pause.",

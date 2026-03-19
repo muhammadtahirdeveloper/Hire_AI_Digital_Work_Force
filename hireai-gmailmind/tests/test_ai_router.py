@@ -74,9 +74,6 @@ class TestTierEnforcement:
     def test_trial_user_allowed_openai_byok(self):
         assert self.router._enforce_tier("openai", "trial") == "openai"
 
-    def test_trial_user_allowed_gemini_byok(self):
-        assert self.router._enforce_tier("gemini", "trial") == "gemini"
-
     def test_tier2_user_allowed_openai(self):
         assert self.router._enforce_tier("openai", "tier2") == "openai"
 
@@ -93,12 +90,12 @@ class TestResolveKey:
         self.router = AIRouter()
 
     def test_byok_preferred_over_env(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "env-key"}):
-            assert self.router._resolve_key("gemini", "my-byok-key") == "my-byok-key"
+        with patch.dict(os.environ, {"GROQ_API_KEY": "env-key"}):
+            assert self.router._resolve_key("groq", "my-byok-key") == "my-byok-key"
 
     def test_env_fallback_when_no_byok(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "env-key"}):
-            assert self.router._resolve_key("gemini", None) == "env-key"
+        with patch.dict(os.environ, {"GROQ_API_KEY": "env-key"}):
+            assert self.router._resolve_key("groq", None) == "env-key"
 
     def test_env_fallback_groq(self):
         with patch.dict(os.environ, {"GROQ_API_KEY": "groq-env"}):
@@ -114,15 +111,14 @@ class TestResolveKey:
 
     def test_missing_key_raises_value_error(self):
         with patch.dict(os.environ, {}, clear=True):
-            # Remove the key if it exists
-            os.environ.pop("GEMINI_API_KEY", None)
+            os.environ.pop("GROQ_API_KEY", None)
             with pytest.raises(ValueError, match="No API key"):
-                self.router._resolve_key("gemini", None)
+                self.router._resolve_key("groq", None)
 
     def test_empty_byok_uses_env(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "env-key"}):
+        with patch.dict(os.environ, {"GROQ_API_KEY": "env-key"}):
             # Empty string is falsy, should fall back to env
-            assert self.router._resolve_key("gemini", "") == "env-key"
+            assert self.router._resolve_key("groq", "") == "env-key"
 
 
 # ============================================================================
@@ -159,13 +155,6 @@ class TestModelSelection:
 
     def test_openai_tier2(self):
         assert self.router._get_model("openai", "tier2") == "gpt-4o"
-
-    # Gemini (BYOK)
-    def test_gemini_trial(self):
-        assert self.router._get_model("gemini", "trial") == "gemini-2.0-flash"
-
-    def test_gemini_tier2(self):
-        assert self.router._get_model("gemini", "tier2") == "gemini-1.5-pro"
 
     # Unknown
     def test_unknown_provider_returns_default(self):
@@ -458,20 +447,20 @@ class TestCheckProvider:
         self.router = AIRouter()
 
     def test_healthy_provider(self):
-        mock_result = {"content": "Hello", "provider": "gemini", "model": "gemini-1.5-flash-latest"}
+        mock_result = {"content": "Hello", "provider": "groq", "model": "llama-3.1-8b-instant"}
 
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "key"}), \
-             patch.object(self.router, "_call_gemini", new_callable=AsyncMock, return_value=mock_result):
+        with patch.dict(os.environ, {"GROQ_API_KEY": "key"}), \
+             patch.object(self.router, "_call_groq_with_retry", new_callable=AsyncMock, return_value=mock_result):
 
-            result = _run(self.router.check_provider("gemini"))
+            result = _run(self.router.check_provider("groq"))
 
         assert result["status"] == "healthy"
-        assert result["provider"] == "gemini"
-        assert result["model"] == "gemini-1.5-flash-latest"
+        assert result["provider"] == "groq"
+        assert result["model"] == "llama-3.1-8b-instant"
 
     def test_unhealthy_provider(self):
         with patch.dict(os.environ, {"GROQ_API_KEY": "key"}), \
-             patch.object(self.router, "_call_groq", new_callable=AsyncMock, side_effect=Exception("timeout")):
+             patch.object(self.router, "_call_groq_with_retry", new_callable=AsyncMock, side_effect=Exception("timeout")):
 
             result = _run(self.router.check_provider("groq"))
 
@@ -486,8 +475,8 @@ class TestCheckProvider:
 
     def test_missing_key_returns_error(self):
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("GEMINI_API_KEY", None)
-            result = _run(self.router.check_provider("gemini"))
+            os.environ.pop("GROQ_API_KEY", None)
+            result = _run(self.router.check_provider("groq"))
 
         assert result["status"] == "error"
         assert "No API key" in result["error"]
@@ -525,6 +514,6 @@ class TestProviderMap:
     def test_managed_providers_are_subset_of_all(self):
         assert self.router.MANAGED_PROVIDERS.issubset(set(self.router.PROVIDER_MAP.keys()))
 
-    def test_four_providers_registered(self):
-        assert len(self.router.PROVIDER_MAP) == 4
-        assert set(self.router.PROVIDER_MAP.keys()) == {"gemini", "groq", "openai", "claude"}
+    def test_three_providers_registered(self):
+        assert len(self.router.PROVIDER_MAP) == 3
+        assert set(self.router.PROVIDER_MAP.keys()) == {"groq", "openai", "claude"}

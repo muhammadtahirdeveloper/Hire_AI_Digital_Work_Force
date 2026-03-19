@@ -340,8 +340,8 @@ class TestProcessEmail:
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: AUTO_REPLY\nREPLY: Thanks for reaching out!\nREASON: Standard inquiry.",
-            "provider": "gemini",
-            "model": "gemini-1.5-flash-latest",
+            "provider": "groq",
+            "model": "llama-3.1-8b-instant",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -349,8 +349,8 @@ class TestProcessEmail:
         result = _run(agent.process_email("user_1", email))
 
         assert result["action"] == "AUTO_REPLY"
-        assert result["provider"] == "gemini"
-        assert result["model"] == "gemini-1.5-flash-latest"
+        assert result["provider"] == "groq"
+        assert result["model"] == "llama-3.1-8b-instant"
         assert "category" in result
 
     def test_process_email_draft_action(self):
@@ -372,8 +372,8 @@ class TestProcessEmail:
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: ESCALATE\nREASON: Legal threat detected.",
-            "provider": "gemini",
-            "model": "gemini-1.5-flash-latest",
+            "provider": "groq",
+            "model": "llama-3.1-8b-instant",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -386,8 +386,8 @@ class TestProcessEmail:
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: LABEL_ARCHIVE\nREASON: Newsletter, no reply needed.",
-            "provider": "gemini",
-            "model": "gemini-1.5-flash-latest",
+            "provider": "groq",
+            "model": "llama-3.1-8b-instant",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -404,8 +404,8 @@ class TestProcessEmail:
         agent = HRAgent()
         mock_result = {
             "content": "ACTION: DRAFT_REPLY\nREPLY: We received your application.",
-            "provider": "gemini",
-            "model": "gemini-1.5-flash-latest",
+            "provider": "groq",
+            "model": "llama-3.1-8b-instant",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -437,8 +437,8 @@ class TestProcessEmail:
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: AUTO_REPLY\nREPLY: Hello!",
-            "provider": "gemini",
-            "model": "gemini-1.5-flash-latest",
+            "provider": "groq",
+            "model": "llama-3.1-8b-instant",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 

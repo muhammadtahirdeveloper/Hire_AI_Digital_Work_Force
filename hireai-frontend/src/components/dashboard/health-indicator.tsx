@@ -9,14 +9,15 @@ import toast from "react-hot-toast";
 import { useState } from "react";
 
 function computeHealthScore(
-  agentStatus: { gmail_valid?: boolean; is_paused?: boolean } | undefined,
+  agentStatus: { gmail_valid?: boolean; gmail_connected?: string; is_paused?: boolean } | undefined,
   stats: { emails_today?: number; auto_replied_today?: number } | undefined,
   providerStatus?: { status?: string; provider?: string } | undefined,
 ): { score: number; breakdown: { label: string; points: number; max: number }[] } {
+  const gmailOk = !!(agentStatus?.gmail_connected || agentStatus?.gmail_valid);
   const breakdown = [
     {
       label: "Gmail connected",
-      points: agentStatus?.gmail_valid ? 20 : 0,
+      points: gmailOk ? 20 : 0,
       max: 20,
     },
     {
