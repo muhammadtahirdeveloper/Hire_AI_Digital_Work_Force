@@ -74,7 +74,8 @@ class TestExecuteAction:
         service = MagicMock()
 
         with patch("agent.email_processor.standalone_reply_to_email", return_value=True) as mock_reply, \
-             patch("agent.email_processor.standalone_mark_as_read") as mock_read:
+             patch("agent.email_processor.standalone_mark_as_read") as mock_read, \
+             patch.object(p, "_get_auto_send", return_value=True):
             decision = {
                 "action": "AUTO_REPLY",
                 "ai_response": "REPLY: Thanks!\nREASON: Quick response.",
@@ -93,7 +94,8 @@ class TestExecuteAction:
         service = MagicMock()
 
         with patch("agent.email_processor.standalone_reply_to_email", return_value=False), \
-             patch("agent.email_processor.standalone_create_draft") as mock_draft:
+             patch("agent.email_processor.standalone_create_draft") as mock_draft, \
+             patch.object(p, "_get_auto_send", return_value=True):
             decision = {
                 "action": "AUTO_REPLY",
                 "ai_response": "REPLY: Hello!\nREASON: test",
@@ -109,7 +111,8 @@ class TestExecuteAction:
         p = _make_processor()
         service = MagicMock()
 
-        with patch("agent.email_processor.standalone_create_draft") as mock_draft:
+        with patch("agent.email_processor.standalone_create_draft") as mock_draft, \
+             patch.object(p, "_get_auto_send", return_value=False):
             decision = {
                 "action": "DRAFT_REPLY",
                 "ai_response": "REPLY: I'll get back to you.\nREASON: Need review.",
@@ -126,10 +129,11 @@ class TestExecuteAction:
         p = _make_processor()
         service = MagicMock()
 
-        decision = {"action": "ESCALATE", "ai_response": "REASON: Legal threat."}
-        email = {"id": "msg_4", "subject": "Legal", "sender": {"email": "l@l.com"}}
+        with patch.object(p, "_get_auto_send", return_value=False):
+            decision = {"action": "ESCALATE", "ai_response": "REASON: Legal threat."}
+            email = {"id": "msg_4", "subject": "Legal", "sender": {"email": "l@l.com"}}
 
-        result = _run(p._execute(service, email, decision))
+            result = _run(p._execute(service, email, decision))
 
         assert result["action"] == "escalated"
         assert result["status"] == "escalated"
@@ -139,7 +143,8 @@ class TestExecuteAction:
         service = MagicMock()
 
         with patch("agent.email_processor.standalone_label_email") as mock_label, \
-             patch("agent.email_processor.standalone_mark_as_read") as mock_read:
+             patch("agent.email_processor.standalone_mark_as_read") as mock_read, \
+             patch.object(p, "_get_auto_send", return_value=False):
             decision = {
                 "action": "LABEL_ARCHIVE",
                 "ai_response": "Newsletter archived.",
@@ -158,10 +163,11 @@ class TestExecuteAction:
         p = _make_processor()
         service = MagicMock()
 
-        decision = {"action": "SCHEDULE_FOLLOWUP", "ai_response": "Follow up in 24h."}
-        email = {"id": "msg_6", "subject": "Proposal", "sender": {"email": "f@f.com"}}
+        with patch.object(p, "_get_auto_send", return_value=False):
+            decision = {"action": "SCHEDULE_FOLLOWUP", "ai_response": "Follow up in 24h."}
+            email = {"id": "msg_6", "subject": "Proposal", "sender": {"email": "f@f.com"}}
 
-        result = _run(p._execute(service, email, decision))
+            result = _run(p._execute(service, email, decision))
 
         assert result["action"] == "followup_scheduled"
 
@@ -169,10 +175,11 @@ class TestExecuteAction:
         p = _make_processor()
         service = MagicMock()
 
-        decision = {"action": "UNKNOWN", "ai_response": "?"}
-        email = {"id": "msg_7", "subject": "?", "sender": {"email": "u@u.com"}}
+        with patch.object(p, "_get_auto_send", return_value=False):
+            decision = {"action": "UNKNOWN", "ai_response": "?"}
+            email = {"id": "msg_7", "subject": "?", "sender": {"email": "u@u.com"}}
 
-        result = _run(p._execute(service, email, decision))
+            result = _run(p._execute(service, email, decision))
 
         assert result["action"] == "no_action"
         assert result["status"] == "skipped"
@@ -182,7 +189,8 @@ class TestExecuteAction:
         p = _make_processor()
         service = MagicMock()
 
-        with patch("agent.email_processor.standalone_create_draft"):
+        with patch("agent.email_processor.standalone_create_draft"), \
+             patch.object(p, "_get_auto_send", return_value=False):
             decision = {"action": "DRAFT_REPLY", "ai_response": "REPLY: Hi."}
             email = {"id": "msg_8", "subject": "Test", "sender": "plain@email.com"}
 

@@ -1,9 +1,10 @@
 """Central AI Router for all LLM calls.
 
-Routes requests to the correct AI provider (Gemini, Groq, OpenAI, Claude)
-based on the user's tier and configuration. Free/trial users are forced
-to Gemini or Groq (HireAI managed keys). Paid users can use any provider
-with their own keys (BYOK) or HireAI managed keys.
+Routes requests to the correct AI provider based on the user's tier:
+  - Free (trial, tier1): Groq (Llama) — HireAI managed key
+  - Professional (tier2): Claude Haiku — HireAI managed key
+  - Enterprise (tier3): Claude Sonnet — HireAI managed key
+  - OpenAI: only available with user's own API key (BYOK)
 
 Usage::
 
@@ -36,33 +37,44 @@ class AIRouter:
     """
 
     PROVIDER_MAP = {
-        "gemini": "_call_gemini",
         "groq": "_call_groq_with_retry",
-        "openai": "_call_openai",
         "claude": "_call_claude",
+        "openai": "_call_openai",
+        "gemini": "_call_gemini",
     }
 
-    # Free-tier providers (no BYOK needed)
-    FREE_PROVIDERS = {"gemini", "groq"}
+    # Managed providers (HireAI provides the key)
+    MANAGED_PROVIDERS = {"groq", "claude"}
 
-    # Tiers that can use any provider
+    # BYOK-only providers (user must provide their own key)
+    BYOK_PROVIDERS = {"openai", "gemini"}
+
+    # Tiers that can use Claude (paid)
     PAID_TIERS = {"tier2", "tier3"}
+
+    # Default provider per tier (used when user has no preference)
+    TIER_DEFAULTS = {
+        "trial": "groq",
+        "tier1": "groq",
+        "tier2": "claude",
+        "tier3": "claude",
+    }
 
     # Tier-based model selection
     PROVIDER_MODELS = {
-        "gemini": {
-            "default": "gemini-2.0-flash",
-            "trial": "gemini-2.0-flash",
-            "tier1": "gemini-2.0-flash",
-            "tier2": "gemini-1.5-pro",
-            "tier3": "gemini-1.5-pro",
-        },
         "groq": {
             "default": "llama-3.1-8b-instant",
             "trial": "llama-3.1-8b-instant",
             "tier1": "llama-3.1-8b-instant",
             "tier2": "llama-3.1-70b-versatile",
             "tier3": "llama-3.1-70b-versatile",
+        },
+        "claude": {
+            "default": "claude-3-5-haiku-latest",
+            "trial": "claude-3-5-haiku-latest",
+            "tier1": "claude-3-5-haiku-latest",
+            "tier2": "claude-3-5-haiku-latest",
+            "tier3": "claude-sonnet-4-5-20250514",
         },
         "openai": {
             "default": "gpt-4o-mini",
@@ -71,21 +83,21 @@ class AIRouter:
             "tier2": "gpt-4o",
             "tier3": "gpt-4o",
         },
-        "claude": {
-            "default": "claude-haiku-3-5",
-            "trial": "claude-haiku-3-5",
-            "tier1": "claude-haiku-3-5",
-            "tier2": "claude-sonnet-4-5",
-            "tier3": "claude-sonnet-4-5",
+        "gemini": {
+            "default": "gemini-2.0-flash",
+            "trial": "gemini-2.0-flash",
+            "tier1": "gemini-2.0-flash",
+            "tier2": "gemini-1.5-pro",
+            "tier3": "gemini-1.5-pro",
         },
     }
 
     # Env var name for each provider's managed API key
     _ENV_MAP = {
-        "gemini": "GEMINI_API_KEY",
         "groq": "GROQ_API_KEY",
-        "openai": "OPENAI_API_KEY",
         "claude": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
     }
 
     # ------------------------------------------------------------------ #
@@ -130,8 +142,8 @@ class AIRouter:
         except Exception as exc:
             logger.error("Provider %s failed: %s", provider, exc)
 
-            # Fallback: try alternate free provider
-            fallback = "groq" if provider != "groq" else "gemini"
+            # Fallback: try alternate managed provider
+            fallback = "groq" if provider != "groq" else "claude"
             try:
                 logger.info("Falling back to %s", fallback)
                 fallback_key = self._resolve_key(fallback, None)
@@ -193,21 +205,38 @@ class AIRouter:
                     {"uid": user_id},
                 ).fetchone()
                 if row:
-                    return (row[0] or "gemini", row[1], row[2] or "trial")
+                    return (row[0] or "groq", row[1], row[2] or "trial")
             finally:
                 db.close()
         except Exception as exc:
             logger.warning("Could not load user config: %s", exc)
-        return ("gemini", None, "trial")
+        return ("groq", None, "trial")
 
     def _enforce_tier(self, provider: str, tier: str) -> str:
-        """Free/trial/tier1 users are forced to gemini or groq."""
-        if tier not in self.PAID_TIERS and provider not in self.FREE_PROVIDERS:
+        """Route to correct provider based on tier.
+
+        - trial/tier1: groq only (unless BYOK with own key)
+        - tier2: claude (Haiku) by default
+        - tier3: claude (Sonnet) by default
+        - BYOK providers (openai, gemini) allowed for any tier if user has key
+        """
+        # If provider is BYOK-only, user must have provided a key — allow it
+        # (key check happens later in _resolve_key)
+        if provider in self.BYOK_PROVIDERS:
+            return provider
+
+        # Free tiers can only use groq
+        if tier not in self.PAID_TIERS and provider != "groq":
             logger.warning(
-                "User on tier=%s tried provider=%s, forcing gemini",
+                "User on tier=%s tried provider=%s, forcing groq",
                 tier, provider,
             )
-            return "gemini"
+            return "groq"
+
+        # Paid tiers: use their configured provider or tier default
+        if provider not in self.PROVIDER_MAP:
+            return self.TIER_DEFAULTS.get(tier, "groq")
+
         return provider
 
     def _resolve_key(self, provider: str, byok_key: Optional[str] = None) -> str:
@@ -226,7 +255,7 @@ class AIRouter:
     def _get_model(self, provider: str, tier: str) -> str:
         """Get the correct model name for a provider + tier combination."""
         models = self.PROVIDER_MODELS.get(provider, {})
-        return models.get(tier, models.get("default", "gemini-2.0-flash"))
+        return models.get(tier, models.get("default", "llama-3.1-8b-instant"))
 
     # ------------------------------------------------------------------ #
     # Provider implementations

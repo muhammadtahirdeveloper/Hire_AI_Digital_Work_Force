@@ -28,7 +28,7 @@ interface EmailEntry {
   subject: string;
   body: string;
   category: string;
-  action: "auto_replied" | "draft_created" | "escalated" | "blocked";
+  action: string;
   timestamp: string;
   confidence: number;
   agent_response?: string;
@@ -64,17 +64,31 @@ const categories = [
 
 const actions = [
   { label: "All", value: "all" },
-  { label: "Auto Replied", value: "auto_replied" },
-  { label: "Draft Created", value: "draft_created" },
-  { label: "Escalated", value: "escalated" },
-  { label: "Blocked", value: "blocked" },
+  { label: "Auto Replied", value: "AUTO_REPLY" },
+  { label: "Draft Created", value: "DRAFT_REPLY" },
+  { label: "Archived", value: "ARCHIVE" },
+  { label: "Escalated", value: "ESCALATE" },
+  { label: "Spam", value: "SPAM" },
+  { label: "In Inbox", value: "INBOX" },
 ];
 
-const actionBadgeMap: Record<string, { label: string; variant: "success" | "navy" | "warning" | "danger" }> = {
+const actionBadgeMap: Record<string, { label: string; variant: "success" | "navy" | "warning" | "danger" | "default" }> = {
+  // Backend action values (uppercase)
+  AUTO_REPLY: { label: "Auto Replied", variant: "success" },
+  DRAFT_REPLY: { label: "Draft Created", variant: "navy" },
+  LABEL_ARCHIVE: { label: "Archived", variant: "default" },
+  ARCHIVE: { label: "Archived", variant: "default" },
+  ESCALATE: { label: "Escalated", variant: "warning" },
+  SPAM: { label: "Spam", variant: "danger" },
+  INBOX: { label: "In Inbox", variant: "success" },
+  // Legacy lowercase values
   auto_replied: { label: "Auto Replied", variant: "success" },
   draft_created: { label: "Draft Created", variant: "navy" },
+  labeled_archived: { label: "Archived", variant: "default" },
   escalated: { label: "Escalated", variant: "warning" },
-  blocked: { label: "Blocked", variant: "danger" },
+  noreply_archived: { label: "Archived", variant: "default" },
+  no_action: { label: "Skipped", variant: "default" },
+  dismissed: { label: "Dismissed", variant: "default" },
 };
 
 const categoryColors: Record<string, string> = {
@@ -121,18 +135,27 @@ export default function EmailLogPage() {
   const totalPages = data?.pages || 1;
 
   const handleExportCSV = useCallback(() => {
-    const csvParams = new URLSearchParams({
-      format: "csv",
-      ...(search && { search }),
-      ...(dateRange !== "all" && { period: dateRange }),
-      ...(category !== "All" && { category }),
-      ...(action !== "all" && { action }),
-    });
-    window.open(
-      `${api.defaults.baseURL}/api/emails/export?${csvParams}`,
-      "_blank"
-    );
-  }, [search, dateRange, category, action]);
+    if (!emails.length) return;
+
+    const headers = ["From", "Email", "Subject", "Category", "Action", "Time"];
+    const rows = emails.map((e) => [
+      e.from_name || e.from,
+      e.from_email || e.from,
+      `"${(e.subject || "").replace(/"/g, '""')}"`,
+      e.category || "",
+      actionBadgeMap[e.action]?.label || e.action || "",
+      e.timestamp ? new Date(e.timestamp).toLocaleString() : "",
+    ]);
+
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `hireai-emails-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [emails]);
 
   const startItem = (page - 1) * PAGE_SIZE + 1;
   const endItem = Math.min(page * PAGE_SIZE, total);
@@ -263,7 +286,10 @@ export default function EmailLogPage() {
 
               {/* Rows */}
               {emails.map((email) => {
-                const badge = actionBadgeMap[email.action] || actionBadgeMap.blocked;
+                const badge = actionBadgeMap[email.action] || {
+                  label: email.action?.replace(/_/g, " ") || "Processed",
+                  variant: "default" as const,
+                };
                 const catColor = categoryColors[email.category] || categoryColors.General;
                 const isExpanded = expandedId === email.id;
                 const initials = email.from_name

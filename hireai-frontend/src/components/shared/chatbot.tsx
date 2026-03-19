@@ -146,7 +146,7 @@ export function Chatbot() {
       const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",
-        content: res.data?.reply || "I'm sorry, I'm having trouble connecting. Please try again.",
+        content: res.data?.data?.reply || res.data?.reply || "I'm sorry, I'm having trouble connecting. Please try again.",
         timestamp: new Date(),
       };
 

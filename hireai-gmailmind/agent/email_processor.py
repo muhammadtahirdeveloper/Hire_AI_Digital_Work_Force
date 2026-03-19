@@ -49,9 +49,15 @@ class EmailProcessor:
         if not service:
             return {"error": "Gmail not connected", "processed": 0}
 
-        # 2. Fetch unread emails
+        # 2. Ensure HireAI-Processed label exists
+        processed_label_id = self._ensure_label(service, "HireAI-Processed")
+
+        # 3. Fetch unread emails (excluding already-processed)
         try:
-            emails = standalone_read_emails(service, max_results=20)
+            emails = standalone_read_emails(
+                service, max_results=20,
+                filter="is:unread -label:HireAI-Processed",
+            )
         except Exception as exc:
             self.logger.error("Failed to fetch emails: %s", exc)
             return {"error": f"Failed to fetch emails: {exc}", "processed": 0}
@@ -59,10 +65,10 @@ class EmailProcessor:
         if not emails:
             return {"processed": 0, "message": "No new emails"}
 
-        # 3. Get agent for this user
+        # 4. Get agent for this user
         agent = self._get_agent()
 
-        # 4. Process each email
+        # 5. Process each email
         results = []
         processed = 0
         for email in emails:
@@ -71,6 +77,11 @@ class EmailProcessor:
                 action_result = await self._execute(service, email, decision)
                 self._log(email, decision)
                 processed += 1
+
+                # Mark as processed to prevent duplicate processing
+                msg_id = email.get("id", "")
+                if msg_id and processed_label_id:
+                    self._add_label(service, msg_id, processed_label_id)
 
                 results.append({
                     "email_from": email.get("from", email.get("sender", "")),
@@ -87,10 +98,65 @@ class EmailProcessor:
                     "error": str(exc),
                 })
 
-        # 5. Update agent status
+        # 6. Update agent status
         self._update_status(processed)
 
         return {"processed": processed, "total": len(emails), "results": results}
+
+    def _get_auto_send(self) -> bool:
+        """Check if auto-send is enabled. Defaults to True for tier2+."""
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text(
+                        "SELECT tier, config FROM user_agents WHERE user_id = :uid LIMIT 1"
+                    ),
+                    {"uid": self.user_id},
+                ).fetchone()
+                if row:
+                    tier = row[0] or "trial"
+                    config = row[1] or {}
+                    # If user explicitly set auto_send, respect it
+                    if isinstance(config, dict) and "auto_send" in config:
+                        return bool(config["auto_send"])
+                    # Default: True for tier2+, False for trial/tier1
+                    return tier in ("tier2", "tier3")
+            finally:
+                db.close()
+        except Exception as exc:
+            self.logger.warning("Could not check auto_send: %s", exc)
+        return False
+
+    def _ensure_label(self, service: Any, label_name: str) -> str | None:
+        """Get or create a Gmail label, return its ID."""
+        try:
+            results = service.users().labels().list(userId="me").execute()
+            for lbl in results.get("labels", []):
+                if lbl["name"] == label_name:
+                    return lbl["id"]
+            # Create the label
+            body = {
+                "name": label_name,
+                "labelListVisibility": "labelShow",
+                "messageListVisibility": "show",
+            }
+            created = service.users().labels().create(userId="me", body=body).execute()
+            return created.get("id")
+        except Exception as exc:
+            self.logger.warning("Could not ensure label '%s': %s", label_name, exc)
+            return None
+
+    def _add_label(self, service: Any, message_id: str, label_id: str) -> None:
+        """Add a label to a Gmail message."""
+        try:
+            service.users().messages().modify(
+                userId="me",
+                id=message_id,
+                body={"addLabelIds": [label_id]},
+            ).execute()
+        except Exception as exc:
+            self.logger.warning("Could not add label to %s: %s", message_id, exc)
 
     def _build_service(self) -> Any:
         """Build Gmail API service from stored credentials.
@@ -138,6 +204,11 @@ class EmailProcessor:
         action = decision.get("action", "DRAFT_REPLY")
         ai_response = decision.get("ai_response", "")
 
+        # Auto-send: tier2+ defaults to True unless user disabled it
+        auto_send = self._get_auto_send()
+        if action == "AUTO_REPLY" and not auto_send:
+            action = "DRAFT_REPLY"
+
         # Extract reply text
         reply_text = self._extract_reply(ai_response)
 
@@ -149,6 +220,19 @@ class EmailProcessor:
         )
         subject = email.get("subject", "(no subject)")
         message_id = email.get("id", "")
+
+        # Never reply to noreply/automated senders
+        noreply_patterns = [
+            "noreply", "no-reply", "do-not-reply", "donotreply",
+            "automated", "mailer-daemon", "notification", "alerts",
+            "system", "postmaster", "bounce",
+        ]
+        sender_lower = sender_email.lower()
+        if any(p in sender_lower for p in noreply_patterns):
+            self.logger.info("Skipping reply to noreply sender: %s", sender_email)
+            if service and message_id:
+                standalone_mark_as_read(service, message_id)
+            return {"status": "archived", "action": "noreply_archived"}
 
         if action == "AUTO_REPLY":
             if reply_text and service:
@@ -221,7 +305,10 @@ class EmailProcessor:
                         "outcome": "processed",
                         "meta": json.dumps({
                             "subject": email.get("subject", ""),
+                            "body": email.get("snippet", "") or email.get("body", ""),
+                            "from_name": email.get("sender_name", "") or email.get("from", "").split("@")[0],
                             "category": decision.get("category", ""),
+                            "agent_response": decision.get("ai_response", ""),
                             "provider": decision.get("provider", ""),
                             "model": decision.get("model", ""),
                             "user_id": self.user_id,

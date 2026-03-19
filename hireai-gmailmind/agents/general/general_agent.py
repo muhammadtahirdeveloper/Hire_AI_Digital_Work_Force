@@ -19,6 +19,13 @@ class GeneralAgent(BaseAgent):
     industry = "general"
     supported_tiers = ["tier1", "tier2", "tier3"]
 
+    # Noreply / automated sender patterns — never auto-reply to these
+    NOREPLY_PATTERNS = [
+        "noreply", "no-reply", "do-not-reply", "donotreply",
+        "automated", "mailer-daemon", "notification", "alerts",
+        "system", "postmaster", "bounce",
+    ]
+
     # ------------------------------------------------------------------
     # Tier-specific system prompts
     # ------------------------------------------------------------------
@@ -172,6 +179,7 @@ class GeneralAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     CATEGORY_ACTIONS = {
+        "noreply": "ARCHIVE",
         "job_application": "AUTO_REPLY",
         "inquiry": "AUTO_REPLY",
         "personal": "INBOX",
@@ -221,6 +229,15 @@ class GeneralAgent(BaseAgent):
             or ""
         ).lower()
         text = f"{subject} {body}"
+
+        # Check noreply/automated senders first — never reply to these
+        for pattern in self.NOREPLY_PATTERNS:
+            if pattern in sender:
+                logger.info(
+                    "%s: Sender '%s' matches noreply pattern '%s' → ARCHIVE only",
+                    self.agent_name, sender, pattern,
+                )
+                return "noreply"
 
         # Check categories in priority order
         for category, patterns in self._CATEGORIES.items():

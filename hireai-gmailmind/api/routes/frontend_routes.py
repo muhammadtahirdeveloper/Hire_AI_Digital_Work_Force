@@ -168,7 +168,7 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
                     "test_mode": row[4] or False,
                     "agent_type": row[0] or "general",
                     "tier": row[1] or "trial",
-                    "model": row[2] or "claude-sonnet-4-5",
+                    "model": row[2] or "llama-3.1-8b-instant",
                     "gmail_connected": row[5] or "",
                     "gmail_valid": row[6] if row[6] is not None else True,
                     "last_processed": row[7].isoformat() if row[7] else None,
@@ -186,7 +186,7 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
         "test_mode": False,
         "agent_type": "general",
         "tier": "trial",
-        "model": "claude-sonnet-4-5",
+        "model": "llama-3.1-8b-instant",
         "gmail_connected": "",
         "gmail_valid": True,
         "last_processed": None,
@@ -544,10 +544,10 @@ async def get_available_providers(user: dict = Depends(get_current_user)):
 
     is_paid = tier in {"tier2", "tier3"}
     providers = [
-        {"id": "gemini", "name": "Google Gemini", "available": True, "free": True},
         {"id": "groq", "name": "Groq (Llama)", "available": True, "free": True},
-        {"id": "openai", "name": "OpenAI GPT-4", "available": is_paid, "free": False},
         {"id": "claude", "name": "Claude (Anthropic)", "available": is_paid, "free": False},
+        {"id": "openai", "name": "OpenAI GPT-4", "available": True, "free": False, "byok": True},
+        {"id": "gemini", "name": "Google Gemini", "available": True, "free": False, "byok": True},
     ]
     return _ok({"providers": providers, "tier": tier})
 
@@ -1232,7 +1232,7 @@ async def support_chat(body: ChatRequest):
             messages.append({"role": "user", "content": body.message})
 
         response = client.messages.create(
-            model="claude-haiku-3-5",
+            model="claude-3-5-haiku-latest",
             max_tokens=300,
             system=system,
             messages=messages,
@@ -1444,7 +1444,7 @@ async def get_billing_plan(user: dict = Depends(get_current_user)):
             db.close()
     except Exception:
         pass
-    return _ok({"tier": "trial", "model": "claude-sonnet-4-5"})
+    return _ok({"tier": "trial", "model": "llama-3.1-8b-instant"})
 
 
 @router.get("/billing/history")

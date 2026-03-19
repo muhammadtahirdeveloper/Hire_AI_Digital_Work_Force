@@ -457,8 +457,10 @@ async def google_login(body: GoogleLoginRequest):
                 trial_end = datetime.now(timezone.utc) + timedelta(days=7)
                 db.execute(
                     text("""
-                        INSERT INTO users (id, email, name, image, google_id, provider, tier, trial_end_date)
-                        VALUES (:id, :email, :name, :image, :gid, 'google', 'trial', :trial_end)
+                        INSERT INTO users (id, email, name, image, google_id, provider, tier,
+                                           trial_end_date, setup_complete, is_active)
+                        VALUES (:id, :email, :name, :image, :gid, 'google', 'trial',
+                                :trial_end, false, true)
                     """),
                     {
                         "id": user_id,
@@ -470,6 +472,7 @@ async def google_login(body: GoogleLoginRequest):
                     },
                 )
                 db.commit()
+                logger.info("New Google user created with setup_complete=false: %s", body.email)
 
             # Also upsert user_agents so dashboard queries work immediately
             _ensure_user_agents_table(db)
@@ -479,8 +482,8 @@ async def google_login(body: GoogleLoginRequest):
                         (user_id, agent_type, ai_provider,
                          gmail_email, model, is_paused, config)
                     VALUES
-                        (:uid, 'general', 'gemini',
-                         :email, 'gemini', false, '{}')
+                        (:uid, 'general', 'groq',
+                         :email, 'groq', false, '{}')
                     ON CONFLICT (user_id) DO NOTHING
                 """),
                 {"uid": user_id, "email": body.email.lower()},
@@ -920,8 +923,8 @@ def _ensure_user_agents_table(db):
             user_id TEXT UNIQUE NOT NULL,
             agent_type TEXT DEFAULT 'general',
             tier TEXT DEFAULT 'trial',
-            model TEXT DEFAULT 'gemini',
-            ai_provider TEXT DEFAULT 'gemini',
+            model TEXT DEFAULT 'groq',
+            ai_provider TEXT DEFAULT 'groq',
             ai_api_key TEXT,
             gmail_email TEXT,
             gmail_token_valid BOOLEAN DEFAULT false,
@@ -936,7 +939,7 @@ def _ensure_user_agents_table(db):
     """))
     # Add columns for existing tables
     for col in [
-        "ai_provider TEXT DEFAULT 'gemini'",
+        "ai_provider TEXT DEFAULT 'groq'",
         "ai_api_key TEXT",
     ]:
         try:
