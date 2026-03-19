@@ -15,7 +15,6 @@ import {
   Database,
   Zap,
   Brain,
-  Bot,
   AlertTriangle,
   Lock,
 } from "lucide-react";
