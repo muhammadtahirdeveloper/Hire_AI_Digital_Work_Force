@@ -51,11 +51,11 @@ class AIRouter:
     # Tier-based model selection
     PROVIDER_MODELS = {
         "gemini": {
-            "default": "gemini-1.5-flash-latest",
-            "trial": "gemini-1.5-flash-latest",
-            "tier1": "gemini-1.5-flash-latest",
-            "tier2": "gemini-1.5-pro-latest",
-            "tier3": "gemini-1.5-pro-latest",
+            "default": "gemini-2.0-flash",
+            "trial": "gemini-2.0-flash",
+            "tier1": "gemini-2.0-flash",
+            "tier2": "gemini-1.5-pro",
+            "tier3": "gemini-1.5-pro",
         },
         "groq": {
             "default": "llama-3.1-8b-instant",
@@ -226,7 +226,7 @@ class AIRouter:
     def _get_model(self, provider: str, tier: str) -> str:
         """Get the correct model name for a provider + tier combination."""
         models = self.PROVIDER_MODELS.get(provider, {})
-        return models.get(tier, models.get("default", "gemini-1.5-flash-latest"))
+        return models.get(tier, models.get("default", "gemini-2.0-flash"))
 
     # ------------------------------------------------------------------ #
     # Provider implementations

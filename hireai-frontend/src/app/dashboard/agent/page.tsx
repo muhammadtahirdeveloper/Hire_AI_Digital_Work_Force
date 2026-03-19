@@ -140,19 +140,19 @@ const languages = [
 ];
 
 const timezones = [
-  "UTC",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Paris",
-  "Asia/Karachi",
-  "Asia/Dubai",
-  "Asia/Kolkata",
-  "Asia/Shanghai",
-  "Asia/Tokyo",
-  "Australia/Sydney",
+  { value: "Asia/Karachi", label: "Pakistan Standard Time (PKT, UTC+5)" },
+  { value: "UTC", label: "UTC" },
+  { value: "America/New_York", label: "Eastern Time (ET, UTC-5)" },
+  { value: "America/Chicago", label: "Central Time (CT, UTC-6)" },
+  { value: "America/Denver", label: "Mountain Time (MT, UTC-7)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PT, UTC-8)" },
+  { value: "Europe/London", label: "London (GMT, UTC+0)" },
+  { value: "Europe/Paris", label: "Paris (CET, UTC+1)" },
+  { value: "Asia/Dubai", label: "Dubai (GST, UTC+4)" },
+  { value: "Asia/Kolkata", label: "India (IST, UTC+5:30)" },
+  { value: "Asia/Shanghai", label: "China (CST, UTC+8)" },
+  { value: "Asia/Tokyo", label: "Tokyo (JST, UTC+9)" },
+  { value: "Australia/Sydney", label: "Sydney (AEST, UTC+10)" },
 ];
 
 const defaultCategories = [
@@ -224,7 +224,7 @@ export default function AgentManagementPage() {
     workingHoursFrom: "09:00",
     workingHoursTo: "17:00",
     workingDays: [true, true, true, true, true, false, false],
-    timezone: "UTC",
+    timezone: "Asia/Karachi",
     queueOutsideHours: true,
     categories: defaultCategories,
     blacklist: "",
@@ -726,8 +726,8 @@ export default function AgentManagementPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {timezones.map((tz) => (
-                        <SelectItem key={tz} value={tz}>
-                          {tz}
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1113,9 +1113,15 @@ export default function AgentManagementPage() {
                     </Button>
                     <Button
                       variant="danger"
-                      onClick={() => {
-                        toast.error("Account deletion is handled via support");
-                        setDeleteModalOpen(false);
+                      onClick={async () => {
+                        try {
+                          await api.delete("/api/account");
+                          toast.success("Account deleted");
+                          setDeleteModalOpen(false);
+                          window.location.href = "/";
+                        } catch {
+                          toast.error("Failed to delete account");
+                        }
                       }}
                     >
                       Delete Account

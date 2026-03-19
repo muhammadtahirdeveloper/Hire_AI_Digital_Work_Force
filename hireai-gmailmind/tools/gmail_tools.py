@@ -362,6 +362,81 @@ def reply_to_email(
 # 4. label_email
 # ---------------------------------------------------------------------------
 
+# Map friendly category names to Gmail system label IDs.
+_SYSTEM_LABEL_MAP: dict[str, str] = {
+    "newsletter": "CATEGORY_PROMOTIONS",
+    "newsletters": "CATEGORY_PROMOTIONS",
+    "promotional": "CATEGORY_PROMOTIONS",
+    "promotions": "CATEGORY_PROMOTIONS",
+    "spam": "SPAM",
+    "social": "CATEGORY_SOCIAL",
+    "updates": "CATEGORY_UPDATES",
+    "forums": "CATEGORY_FORUMS",
+    "important": "IMPORTANT",
+    "starred": "STARRED",
+    "trash": "TRASH",
+}
+
+# Labels that Gmail already knows about (no creation needed).
+_GMAIL_SYSTEM_LABELS: set[str] = {
+    "INBOX", "SPAM", "TRASH", "UNREAD", "STARRED", "IMPORTANT",
+    "SENT", "DRAFT", "CATEGORY_PERSONAL", "CATEGORY_SOCIAL",
+    "CATEGORY_PROMOTIONS", "CATEGORY_UPDATES", "CATEGORY_FORUMS",
+}
+
+# Labels that should just archive — no label to add.
+_ARCHIVE_ONLY: set[str] = {"general", "personal"}
+
+
+def _resolve_label_ids(service: Resource, labels: list[str]) -> list[str]:
+    """Convert friendly label names into Gmail-compatible label IDs.
+
+    - Maps known names to system label IDs.
+    - Passes through existing system IDs unchanged.
+    - Skips archive-only categories.
+    - Creates a custom user label for anything else.
+    """
+    resolved: list[str] = []
+    for label in labels:
+        low = label.lower().strip()
+
+        # Skip archive-only categories
+        if low in _ARCHIVE_ONLY:
+            continue
+
+        # Map to system label if possible
+        if low in _SYSTEM_LABEL_MAP:
+            resolved.append(_SYSTEM_LABEL_MAP[low])
+            continue
+
+        # Already a valid system label ID
+        if label in _GMAIL_SYSTEM_LABELS:
+            resolved.append(label)
+            continue
+
+        # Otherwise, find-or-create a user label
+        try:
+            existing = service.users().labels().list(userId="me").execute()
+            found = False
+            for gl in existing.get("labels", []):
+                if gl["name"].lower() == low:
+                    resolved.append(gl["id"])
+                    found = True
+                    break
+            if not found:
+                created = service.users().labels().create(
+                    userId="me",
+                    body={"name": label, "labelListVisibility": "labelShow",
+                          "messageListVisibility": "show"},
+                ).execute()
+                resolved.append(created["id"])
+                logger.info("label_email: Created custom label '%s' (id=%s)", label, created["id"])
+        except HttpError as exc:
+            logger.warning("label_email: Could not resolve label '%s': %s", label, exc)
+
+    return resolved
+
+
 def label_email(
     service: Resource,
     email_id: str,
@@ -370,10 +445,13 @@ def label_email(
 ) -> LabelResult:
     """Add labels to an email and optionally archive it.
 
+    Accepts friendly category names (e.g. 'newsletter', 'spam') and
+    maps them to Gmail system label IDs before applying.
+
     Args:
         service: Authenticated Gmail API service resource.
         email_id: The Gmail message ID to modify.
-        labels: List of label IDs to add to the message.
+        labels: List of label names or IDs to add to the message.
         archive: If True, remove the INBOX label (archive the message).
 
     Returns:
@@ -390,31 +468,35 @@ def label_email(
     )
 
     try:
+        resolved = _resolve_label_ids(service, labels)
+
         modify_body: dict = {
-            "addLabelIds": labels,
+            "addLabelIds": resolved,
             "removeLabelIds": [],
         }
 
         if archive:
             modify_body["removeLabelIds"].append("INBOX")
 
-        service.users().messages().modify(
-            userId="me",
-            id=email_id,
-            body=modify_body,
-        ).execute()
+        # Only call modify if there's something to change
+        if resolved or archive:
+            service.users().messages().modify(
+                userId="me",
+                id=email_id,
+                body=modify_body,
+            ).execute()
 
         logger.info(
             "label_email: Modified email %s — added=%s, removed=%s, archived=%s",
             email_id,
-            labels,
+            resolved,
             modify_body["removeLabelIds"],
             archive,
         )
 
         return LabelResult(
             email_id=email_id,
-            labels_added=labels,
+            labels_added=resolved,
             labels_removed=modify_body["removeLabelIds"],
             archived=archive,
             success=True,

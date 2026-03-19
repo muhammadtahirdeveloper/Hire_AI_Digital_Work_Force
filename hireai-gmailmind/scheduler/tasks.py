@@ -191,6 +191,51 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
     )
 
     try:
+        # --- Step 0: Trial expiry check ---
+        logger.info("[run_gmailmind_for_user] Step 0: Checking trial expiry for user=%s...", user_id)
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text("""
+                        SELECT u.tier, u.trial_end_date
+                        FROM users u
+                        WHERE u.id = :uid
+                    """),
+                    {"uid": user_id},
+                ).fetchone()
+                if row and row[0] == "trial" and row[1] is not None:
+                    trial_end = row[1]
+                    # Ensure timezone-aware comparison
+                    if hasattr(trial_end, "tzinfo") and trial_end.tzinfo is None:
+                        from datetime import timezone as tz
+                        trial_end = trial_end.replace(tzinfo=tz.utc)
+                    if datetime.now(timezone.utc) > trial_end:
+                        logger.info(
+                            "[run_gmailmind_for_user] Trial EXPIRED for user=%s (ended %s). Pausing agent.",
+                            user_id, trial_end.isoformat(),
+                        )
+                        # Pause the agent
+                        db.execute(
+                            text("UPDATE user_agents SET is_paused = true WHERE user_id = :uid"),
+                            {"uid": user_id},
+                        )
+                        db.commit()
+                        _ensure_status_table()
+                        _set_agent_status(user_id, "idle", error_msg="trial_expired")
+                        duration = time.monotonic() - start
+                        return {
+                            "status": "trial_expired",
+                            "user_id": user_id,
+                            "started_at": started_at,
+                            "duration_s": round(duration, 2),
+                            "reason": "Trial period has ended. Upgrade to continue.",
+                        }
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("[run_gmailmind_for_user] Trial check failed (non-fatal): %s", exc)
+
         # --- Step 1: Ensure status table ---
         logger.info("[run_gmailmind_for_user] Step 1/6: Ensuring agent_status table exists...")
         _ensure_status_table()

@@ -46,16 +46,16 @@ import toast from "react-hot-toast";
 // --- Constants ---
 
 const timezones = [
-  "UTC",
-  "America/New_York",
-  "America/Chicago",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Paris",
-  "Asia/Karachi",
-  "Asia/Dubai",
-  "Asia/Kolkata",
-  "Asia/Tokyo",
+  { value: "Asia/Karachi", label: "Pakistan Standard Time (PKT, UTC+5)" },
+  { value: "UTC", label: "UTC" },
+  { value: "America/New_York", label: "Eastern Time (ET, UTC-5)" },
+  { value: "America/Chicago", label: "Central Time (CT, UTC-6)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PT, UTC-8)" },
+  { value: "Europe/London", label: "London (GMT, UTC+0)" },
+  { value: "Europe/Paris", label: "Paris (CET, UTC+1)" },
+  { value: "Asia/Dubai", label: "Dubai (GST, UTC+4)" },
+  { value: "Asia/Kolkata", label: "India (IST, UTC+5:30)" },
+  { value: "Asia/Tokyo", label: "Tokyo (JST, UTC+9)" },
 ];
 
 const languages = ["English", "Urdu", "Arabic", "Spanish", "French", "German", "Chinese"];
@@ -70,7 +70,7 @@ export default function SettingsPage() {
   // Profile state
   const [fullName, setFullName] = useState(user?.name || "");
   const [displayName, setDisplayName] = useState(user?.name?.split(" ")[0] || "");
-  const [timezone, setTimezone] = useState("UTC");
+  const [timezone, setTimezone] = useState("Asia/Karachi");
   const [language, setLanguage] = useState("English");
   const [profileSaving, setProfileSaving] = useState(false);
 
@@ -236,7 +236,7 @@ export default function SettingsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {timezones.map((tz) => (
-                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                        <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

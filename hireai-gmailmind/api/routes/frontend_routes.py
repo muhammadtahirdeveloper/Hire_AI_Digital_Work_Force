@@ -379,6 +379,51 @@ async def resume_agent(user: dict = Depends(get_current_user)):
     return _ok({"success": True, "status": "active", "message": "Agent resumed"})
 
 
+@router.post("/agent/reset")
+async def reset_agent(user: dict = Depends(get_current_user)):
+    """Reset agent: clear action_logs, reset config to defaults, set status idle."""
+    user_id = user.get("sub", "")
+
+    try:
+        db = SessionLocal()
+        try:
+            # Clear user's action logs
+            db.execute(
+                text("DELETE FROM action_logs WHERE user_id = :uid OR metadata->>'user_id' = :uid"),
+                {"uid": user_id},
+            )
+            # Reset agent config to empty (defaults)
+            db.execute(
+                text("""
+                    UPDATE user_agents
+                    SET config = '{}'::jsonb,
+                        is_paused = false,
+                        test_mode = false,
+                        last_error = NULL,
+                        updated_at = NOW()
+                    WHERE user_id = :uid
+                """),
+                {"uid": user_id},
+            )
+            # Reset agent_status to idle
+            db.execute(
+                text("""
+                    UPDATE agent_status SET status = 'idle', error_msg = '', updated_at = NOW()
+                    WHERE user_id = :uid
+                """),
+                {"uid": user_id},
+            )
+            db.commit()
+            logger.info("Agent reset for user=%s", user_id)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Reset agent failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Reset failed: {exc}")
+
+    return _ok({"message": "Agent reset to defaults", "status": "idle"})
+
+
 @router.post("/agent/restart")
 async def restart_agent(user: dict = Depends(get_current_user)):
     """Restart the user's agent."""
@@ -947,6 +992,38 @@ async def update_profile(
 async def get_setup_status(user: dict = Depends(get_current_user)):
     """Check if user has completed setup."""
     return _ok({"setup_complete": True})
+
+
+@router.delete("/account")
+async def delete_account(user: dict = Depends(get_current_user)):
+    """Permanently delete user account and all associated data."""
+    user_id = user.get("sub", "")
+    email = user.get("email", "")
+
+    try:
+        db = SessionLocal()
+        try:
+            # Delete in dependency order
+            db.execute(
+                text("DELETE FROM action_logs WHERE user_id = :uid OR metadata->>'user_id' = :uid"),
+                {"uid": user_id},
+            )
+            db.execute(text("DELETE FROM agent_status WHERE user_id = :uid"), {"uid": user_id})
+            db.execute(text("DELETE FROM user_credentials WHERE user_id = :uid"), {"uid": user_id})
+            db.execute(text("DELETE FROM user_agents WHERE user_id = :uid"), {"uid": user_id})
+            db.execute(
+                text("DELETE FROM users WHERE id = :uid OR email = :email"),
+                {"uid": user_id, "email": email.lower() if email else ""},
+            )
+            db.commit()
+            logger.info("Account deleted: user_id=%s email=%s", user_id, email)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Delete account failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
+
+    return _ok({"message": "Account deleted", "deleted": True})
 
 
 @router.post("/user/complete-setup")
