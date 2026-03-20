@@ -16,7 +16,6 @@ import {
   Calendar,
   ChevronLeft,
   Tag,
-  X,
   User,
   Pencil,
   Trash2,
