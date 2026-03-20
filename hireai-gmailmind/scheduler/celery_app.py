@@ -119,6 +119,14 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/30"),
         "options": {"queue": "followups"},
     },
+
+    # --- Weekly user summary: every Monday at 08:00 UTC ---
+    "send-weekly-user-summary": {
+        "task": "scheduler.tasks.send_weekly_user_summary",
+        "schedule": crontab(hour=8, minute=0, day_of_week=1),
+        "args": ("default",),
+        "options": {"queue": "reports"},
+    },
 }
 
 # Queue routing: realtime (high priority) > agent > followups > reports
@@ -133,6 +141,7 @@ app.conf.task_routes = {
     "scheduler.tasks.send_ecommerce_weekly_report": {"queue": "reports"},
     "scheduler.tasks.renew_gmail_watches": {"queue": "agent"},
     "scheduler.tasks.send_event_reminders": {"queue": "followups"},
+    "scheduler.tasks.send_weekly_user_summary": {"queue": "reports"},
 }
 # Worker consumes queues in priority order:
 # celery -A scheduler.celery_app worker -Q realtime,agent,default,followups,reports

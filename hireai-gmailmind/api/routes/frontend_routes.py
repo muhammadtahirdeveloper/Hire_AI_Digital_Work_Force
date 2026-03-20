@@ -1957,3 +1957,237 @@ async def contact_email_history(
     except Exception as exc:
         logger.error("Contact email history failed: %s", exc)
         return _ok({"emails": []})
+
+
+# ============================================================================
+# DEAL PIPELINE ENDPOINTS
+# ============================================================================
+
+DEAL_STAGES = ["lead", "qualified", "proposal", "won", "lost"]
+STAGE_PROBABILITIES = {"lead": 10, "qualified": 30, "proposal": 60, "won": 100, "lost": 0}
+
+
+@router.get("/deals")
+async def list_deals(user: dict = Depends(get_current_user)):
+    """List all deals grouped by stage for pipeline view."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            rows = db.execute(
+                text("""
+                    SELECT d.id, d.title, d.value, d.currency, d.stage, d.probability,
+                           d.expected_close_date, d.notes, d.created_at,
+                           c.name as contact_name, c.email as contact_email
+                    FROM deals d
+                    LEFT JOIN contacts c ON d.contact_id = c.id
+                    WHERE d.user_id = :uid
+                    ORDER BY d.created_at DESC
+                """),
+                {"uid": user_id},
+            ).fetchall()
+
+            deals = [
+                {
+                    "id": r[0], "title": r[1], "value": float(r[2] or 0),
+                    "currency": r[3] or "USD", "stage": r[4] or "lead",
+                    "probability": r[5] or 0,
+                    "expected_close_date": r[6].isoformat() if r[6] else None,
+                    "notes": r[7] or "", "created_at": r[8].isoformat() if r[8] else None,
+                    "contact_name": r[9] or "", "contact_email": r[10] or "",
+                }
+                for r in rows
+            ]
+
+            # Group by stage
+            pipeline = {stage: [] for stage in DEAL_STAGES}
+            total_value = 0.0
+            for deal in deals:
+                stage = deal["stage"]
+                if stage in pipeline:
+                    pipeline[stage].append(deal)
+                if stage not in ("lost",):
+                    total_value += deal["value"]
+
+            return _ok({"pipeline": pipeline, "total_value": total_value, "total_deals": len(deals)})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("List deals failed: %s", exc)
+        return _ok({"pipeline": {s: [] for s in DEAL_STAGES}, "total_value": 0, "total_deals": 0})
+
+
+class DealCreate(BaseModel):
+    title: str
+    value: float = 0
+    currency: str = "USD"
+    stage: str = "lead"
+    contact_email: str = ""
+    expected_close_date: Optional[str] = None
+    notes: str = ""
+
+
+@router.post("/deals")
+async def create_deal(body: DealCreate, user: dict = Depends(get_current_user)):
+    """Create a new deal."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            # Find contact_id from email
+            contact_id = None
+            if body.contact_email:
+                contact_row = db.execute(
+                    text("SELECT id FROM contacts WHERE user_id = :uid AND email = :email LIMIT 1"),
+                    {"uid": user_id, "email": body.contact_email.lower()},
+                ).fetchone()
+                if contact_row:
+                    contact_id = contact_row[0]
+
+            probability = STAGE_PROBABILITIES.get(body.stage, 10)
+            result = db.execute(
+                text("""
+                    INSERT INTO deals (user_id, contact_id, title, value, currency, stage,
+                                       probability, expected_close_date, notes)
+                    VALUES (:uid, :cid, :title, :val, :cur, :stage, :prob, :ecd, :notes)
+                    RETURNING id
+                """),
+                {
+                    "uid": user_id, "cid": contact_id, "title": body.title,
+                    "val": body.value, "cur": body.currency, "stage": body.stage,
+                    "prob": probability,
+                    "ecd": body.expected_close_date if body.expected_close_date else None,
+                    "notes": body.notes,
+                },
+            )
+            db.commit()
+            new_id = result.fetchone()[0]
+            return _ok({"id": new_id, "message": "Deal created"})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Create deal failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class DealStageUpdate(BaseModel):
+    stage: str
+
+
+@router.patch("/deals/{deal_id}/stage")
+async def update_deal_stage(deal_id: str, body: DealStageUpdate, user: dict = Depends(get_current_user)):
+    """Move a deal to a different pipeline stage."""
+    user_id = user.get("sub", "")
+    if body.stage not in DEAL_STAGES:
+        raise HTTPException(status_code=400, detail=f"Invalid stage. Must be one of: {DEAL_STAGES}")
+    try:
+        db = SessionLocal()
+        try:
+            probability = STAGE_PROBABILITIES.get(body.stage, 10)
+            db.execute(
+                text("""
+                    UPDATE deals SET stage = :stage, probability = :prob, updated_at = NOW()
+                    WHERE id = :did AND user_id = :uid
+                """),
+                {"stage": body.stage, "prob": probability, "did": deal_id, "uid": user_id},
+            )
+            db.commit()
+            return _ok({"message": f"Deal moved to {body.stage}"})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Update deal stage failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/deals/{deal_id}")
+async def delete_deal(deal_id: str, user: dict = Depends(get_current_user)):
+    """Delete a deal."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(text("DELETE FROM deals WHERE id = :did AND user_id = :uid"),
+                       {"did": deal_id, "uid": user_id})
+            db.commit()
+            return _ok({"message": "Deal deleted"})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Delete deal failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# ROI DASHBOARD
+# ============================================================================
+
+
+@router.get("/dashboard/roi")
+async def get_roi_dashboard(user: dict = Depends(get_current_user)):
+    """Calculate ROI metrics for the current month."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            # Get emails processed this month
+            row = db.execute(
+                text("""
+                    SELECT COUNT(*) FROM action_logs
+                    WHERE user_id = :uid
+                      AND timestamp >= date_trunc('month', NOW())
+                """),
+                {"uid": user_id},
+            ).fetchone()
+            emails_this_month = row[0] if row else 0
+
+            # Get user tier for plan cost
+            tier_row = db.execute(
+                text("SELECT tier FROM user_agents WHERE user_id = :uid LIMIT 1"),
+                {"uid": user_id},
+            ).fetchone()
+            tier = tier_row[0] if tier_row else "trial"
+
+            tier_costs = {"trial": 0, "tier1": 9, "tier2": 29, "tier3": 59}
+            plan_cost = tier_costs.get(tier, 0)
+
+            # Time saved: 3 min per email
+            time_saved_minutes = emails_this_month * 3
+            time_saved_hours = round(time_saved_minutes / 60, 1)
+
+            # Value of time saved at $15/hour
+            hourly_rate = 15
+            value_saved = round(time_saved_hours * hourly_rate, 2)
+
+            # ROI calculation
+            roi_pct = round(((value_saved - plan_cost) / max(plan_cost, 1)) * 100) if plan_cost > 0 else 0
+
+            # Deal pipeline value
+            deal_row = db.execute(
+                text("""
+                    SELECT COALESCE(SUM(value), 0) FROM deals
+                    WHERE user_id = :uid AND stage NOT IN ('lost')
+                """),
+                {"uid": user_id},
+            ).fetchone()
+            pipeline_value = float(deal_row[0]) if deal_row else 0
+
+            return _ok({
+                "emails_this_month": emails_this_month,
+                "time_saved_hours": time_saved_hours,
+                "plan_cost": plan_cost,
+                "hourly_rate": hourly_rate,
+                "value_saved": value_saved,
+                "roi_percentage": roi_pct,
+                "pipeline_value": pipeline_value,
+                "tier": tier,
+            })
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("ROI dashboard failed: %s", exc)
+        return _ok({
+            "emails_this_month": 0, "time_saved_hours": 0,
+            "plan_cost": 0, "value_saved": 0, "roi_percentage": 0,
+            "pipeline_value": 0, "tier": "trial",
+        })

@@ -183,6 +183,46 @@ async def ensure_contacts_table():
         logger.warning("contacts migration skipped (non-fatal): %s", exc)
 
 
+@app.on_event("startup")
+async def ensure_deals_table():
+    """Create deals table if it doesn't exist."""
+    try:
+        from config.database import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS deals (
+                    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    user_id VARCHAR(255) NOT NULL,
+                    contact_id VARCHAR(36),
+                    title VARCHAR(255),
+                    value DECIMAL(10,2) DEFAULT 0,
+                    currency VARCHAR(10) DEFAULT 'USD',
+                    stage VARCHAR(50) DEFAULT 'lead',
+                    probability INTEGER DEFAULT 0,
+                    expected_close_date DATE,
+                    source_email_id VARCHAR(255),
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            for idx in [
+                "CREATE INDEX IF NOT EXISTS idx_deals_user_id ON deals(user_id)",
+                "CREATE INDEX IF NOT EXISTS idx_deals_stage ON deals(user_id, stage)",
+            ]:
+                try:
+                    db.execute(text(idx))
+                except Exception:
+                    pass
+            db.commit()
+            logger.info("deals table migration complete")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("deals migration skipped (non-fatal): %s", exc)
+
+
 # ============================================================================
 # Health check
 # ============================================================================

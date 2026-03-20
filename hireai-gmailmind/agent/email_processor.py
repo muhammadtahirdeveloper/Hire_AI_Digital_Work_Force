@@ -112,6 +112,12 @@ class EmailProcessor:
                     # Auto-create/update contact record
                     self._upsert_contact(email)
 
+                    # Auto-create deal for business opportunity emails
+                    category = decision.get("category", "")
+                    if category in ("property_inquiry", "viewing_request", "offer_submission",
+                                    "job_inquiry", "new_lead", "business_inquiry"):
+                        self._auto_create_deal(email, category)
+
                     # Mark as processed to prevent duplicate processing
                     msg_id = email.get("id", "")
                     if msg_id and processed_label_id:
@@ -651,6 +657,63 @@ class EmailProcessor:
                 db.close()
         except Exception as exc:
             self.logger.debug("Contact upsert failed (non-critical): %s", exc)
+
+    def _auto_create_deal(self, email: dict, category: str) -> None:
+        """Auto-create a deal from a business opportunity email."""
+        try:
+            sender = email.get("sender", {})
+            if isinstance(sender, dict):
+                sender_email = sender.get("email", "").lower().strip()
+                sender_name = sender.get("name", "")
+            else:
+                sender_email = str(sender).lower().strip()
+                sender_name = ""
+
+            if not sender_email or sender_email == "unknown":
+                return
+
+            subject = email.get("subject", "New opportunity")
+            msg_id = email.get("id", "")
+
+            db = SessionLocal()
+            try:
+                # Check for duplicate (same source email ID)
+                if msg_id:
+                    existing = db.execute(
+                        text("SELECT id FROM deals WHERE user_id = :uid AND source_email_id = :eid LIMIT 1"),
+                        {"uid": self.user_id, "eid": msg_id},
+                    ).fetchone()
+                    if existing:
+                        return
+
+                # Find contact_id
+                contact_id = None
+                contact_row = db.execute(
+                    text("SELECT id FROM contacts WHERE user_id = :uid AND email = :email LIMIT 1"),
+                    {"uid": self.user_id, "email": sender_email},
+                ).fetchone()
+                if contact_row:
+                    contact_id = contact_row[0]
+
+                title = f"Lead: {subject[:80]}"
+                db.execute(
+                    text("""
+                        INSERT INTO deals (user_id, contact_id, title, stage, probability,
+                                           source_email_id, notes)
+                        VALUES (:uid, :cid, :title, 'lead', 10, :eid, :notes)
+                    """),
+                    {
+                        "uid": self.user_id, "cid": contact_id,
+                        "title": title, "eid": msg_id,
+                        "notes": f"Auto-created from {category} email by {sender_name or sender_email}",
+                    },
+                )
+                db.commit()
+                self.logger.info("Auto-created deal from %s email: %s", category, title)
+            finally:
+                db.close()
+        except Exception as exc:
+            self.logger.debug("Auto deal creation failed (non-critical): %s", exc)
 
     def _update_status(self, processed: int) -> None:
         """Update user_agents with last run info.

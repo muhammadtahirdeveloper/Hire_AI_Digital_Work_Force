@@ -28,6 +28,8 @@ import {
   Download,
   ArrowUpRight,
   ArrowDownRight,
+  DollarSign,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
@@ -62,6 +64,16 @@ interface AnalyticsData {
     change: number;
     unit: string;
   }[];
+}
+
+interface ROIData {
+  emails_handled: number;
+  time_saved_hours: number;
+  plan_cost: number;
+  hourly_rate: number;
+  value_saved: number;
+  roi_percentage: number;
+  plan_name: string;
 }
 
 // --- Constants ---
@@ -147,6 +159,12 @@ export default function AnalyticsPage() {
 
   const { data: apiData, isLoading } = useSWR<AnalyticsData>(
     `/api/analytics?period=${period}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
+
+  const { data: roiData } = useSWR<ROIData>(
+    "/api/dashboard/roi",
     fetcher,
     { revalidateOnFocus: false }
   );
@@ -515,6 +533,83 @@ export default function AnalyticsPage() {
           </div>
         </CardBody>
       </Card>
+
+      {/* 9. ROI DASHBOARD */}
+      {roiData && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-success" />
+              <h2 className="text-base font-semibold text-text">
+                Return on Investment
+              </h2>
+            </div>
+          </CardHeader>
+          <CardBody>
+            {/* Big ROI Message */}
+            <div className="mb-6 rounded-xl bg-success-light p-6 text-center">
+              <p className="text-sm font-medium text-success">This Month</p>
+              <p className="mt-1 text-4xl font-bold text-success">
+                Your agent saved you ${(roiData.value_saved ?? 0).toLocaleString()}!
+              </p>
+              <p className="mt-2 text-sm text-success">
+                {roiData.roi_percentage > 0
+                  ? `${roiData.roi_percentage.toFixed(0)}% ROI on your ${roiData.plan_name} plan`
+                  : "Connect your agent to start saving time"}
+              </p>
+            </div>
+
+            {/* ROI Breakdown Grid */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-navy" />
+                  <p className="text-xs text-text-3">Emails Handled</p>
+                </div>
+                <p className="mt-2 text-2xl font-bold text-text">
+                  {(roiData.emails_handled ?? 0).toLocaleString()}
+                </p>
+                <p className="mt-1 text-xs text-text-4">this month</p>
+              </div>
+
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <Timer className="h-4 w-4 text-navy" />
+                  <p className="text-xs text-text-3">Time Saved</p>
+                </div>
+                <p className="mt-2 text-2xl font-bold text-text">
+                  ~{roiData.time_saved_hours ?? 0}h
+                </p>
+                <p className="mt-1 text-xs text-text-4">3 min per email</p>
+              </div>
+
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-text-3" />
+                  <p className="text-xs text-text-3">Plan Cost</p>
+                </div>
+                <p className="mt-2 text-2xl font-bold text-text">
+                  ${roiData.plan_cost ?? 0}/mo
+                </p>
+                <p className="mt-1 text-xs text-text-4">{roiData.plan_name}</p>
+              </div>
+
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-success" />
+                  <p className="text-xs text-text-3">Value Saved</p>
+                </div>
+                <p className="mt-2 text-2xl font-bold text-success">
+                  ${(roiData.value_saved ?? 0).toLocaleString()}
+                </p>
+                <p className="mt-1 text-xs text-text-4">
+                  {roiData.time_saved_hours ?? 0}h x ${roiData.hourly_rate ?? 15}/hr
+                </p>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
     </div>
   );
 }

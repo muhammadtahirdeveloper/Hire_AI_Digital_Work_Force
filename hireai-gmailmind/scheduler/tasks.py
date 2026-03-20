@@ -1373,3 +1373,159 @@ def send_event_reminders(self) -> dict[str, Any]:
             "duration_s": round(duration, 2),
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+# ============================================================================
+# Weekly user summary email
+# ============================================================================
+
+
+@app.task(name="scheduler.tasks.send_weekly_user_summary")
+def send_weekly_user_summary(scope: str = "default") -> dict[str, Any]:
+    """Send a weekly summary email to each user every Monday morning.
+
+    Includes: emails processed, new contacts, time saved, priority emails.
+    """
+    start = time.monotonic()
+    logger.info("[send_weekly_user_summary] START scope=%s", scope)
+    sent = 0
+    errors = 0
+
+    try:
+        db = SessionLocal()
+        try:
+            # Get all active users with Gmail connected
+            rows = db.execute(
+                text("""
+                    SELECT ua.user_id, ua.gmail_email
+                    FROM user_agents ua
+                    WHERE ua.status = 'active'
+                      AND ua.gmail_email IS NOT NULL
+                """)
+            ).fetchall()
+
+            for row in rows:
+                user_id = row[0]
+                gmail_email = row[1]
+
+                try:
+                    _send_one_weekly_summary(db, user_id, gmail_email)
+                    sent += 1
+                except Exception as exc:
+                    errors += 1
+                    logger.error(
+                        "[send_weekly_user_summary] Failed for user %s: %s",
+                        user_id, exc,
+                    )
+        finally:
+            db.close()
+
+        duration = time.monotonic() - start
+        logger.info(
+            "[send_weekly_user_summary] DONE sent=%d errors=%d duration=%.1fs",
+            sent, errors, duration,
+        )
+        return {"status": "success", "sent": sent, "errors": errors, "duration_s": round(duration, 2)}
+
+    except Exception as exc:
+        duration = time.monotonic() - start
+        logger.exception("[send_weekly_user_summary] ERROR: %s", exc)
+        return {"status": "error", "error": str(exc), "duration_s": round(duration, 2)}
+
+
+def _send_one_weekly_summary(db, user_id: str, gmail_email: str) -> None:
+    """Build and send the weekly summary email for one user."""
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+
+    # Emails processed last week
+    result = db.execute(
+        text("""
+            SELECT COUNT(*) FROM action_logs
+            WHERE user_id = :uid AND timestamp >= :since
+        """),
+        {"uid": user_id, "since": week_ago},
+    ).scalar() or 0
+    emails_processed = int(result)
+
+    # New contacts added
+    new_contacts = int(db.execute(
+        text("""
+            SELECT COUNT(*) FROM contacts
+            WHERE user_id = :uid AND created_at >= :since
+        """),
+        {"uid": user_id, "since": week_ago},
+    ).scalar() or 0)
+
+    # Time saved (3 min per email)
+    time_saved_hours = round(emails_processed * 3 / 60, 1)
+
+    # Priority emails needing attention (escalated, not yet handled)
+    priority_rows = db.execute(
+        text("""
+            SELECT email_subject, timestamp FROM action_logs
+            WHERE user_id = :uid
+              AND action_type = 'escalated'
+              AND timestamp >= :since
+            ORDER BY timestamp DESC
+            LIMIT 5
+        """),
+        {"uid": user_id, "since": week_ago},
+    ).fetchall()
+
+    priority_list = ""
+    for pr in priority_rows:
+        subj = pr[0] or "No subject"
+        priority_list += f"  - {subj}\n"
+
+    if not priority_list:
+        priority_list = "  None — great job, your agent handled everything!\n"
+
+    # Build email body
+    body = (
+        f"Hi there,\n\n"
+        f"Here's your weekly HireAI summary for the past 7 days:\n\n"
+        f"Emails Processed: {emails_processed}\n"
+        f"New Contacts Added: {new_contacts}\n"
+        f"Time Saved: ~{time_saved_hours} hours\n\n"
+        f"Priority Emails Needing Attention:\n"
+        f"{priority_list}\n"
+        f"Keep it up! Your AI agent is working hard for you.\n\n"
+        f"— HireAI Team\n"
+    )
+
+    # Send via Gmail API
+    from memory.long_term import get_user_credentials
+    from config.credentials import refresh_credentials
+    from googleapiclient.discovery import build
+    import base64
+    from email.mime.text import MIMEText
+
+    creds_data = get_user_credentials(user_id)
+    if not creds_data:
+        logger.warning("[weekly_summary] No credentials for user %s", user_id)
+        return
+
+    credentials = refresh_credentials(creds_data, user_id=user_id)
+    if not credentials:
+        logger.warning("[weekly_summary] Could not refresh creds for user %s", user_id)
+        return
+
+    gmail_svc = build("gmail", "v1", credentials=credentials)
+
+    message = MIMEText(body)
+    message["to"] = gmail_email
+    message["subject"] = f"Your HireAI Weekly Summary — {emails_processed} emails handled"
+
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    gmail_svc.users().messages().send(
+        userId="me",
+        body={"raw": raw},
+    ).execute()
+
+    logger.info(
+        "[weekly_summary] Sent to %s: %d emails, %d contacts, %.1fh saved",
+        gmail_email, emails_processed, new_contacts, time_saved_hours,
+    )

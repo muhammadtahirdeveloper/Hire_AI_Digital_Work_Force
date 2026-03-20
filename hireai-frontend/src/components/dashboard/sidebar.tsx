@@ -16,6 +16,7 @@ import {
   Star,
   Shield,
   Users,
+  Kanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
@@ -26,6 +27,7 @@ const navItems = [
   { href: "/dashboard/agent", icon: Bot, label: "Agent" },
   { href: "/dashboard/emails", icon: Mail, label: "Emails" },
   { href: "/dashboard/contacts", icon: Users, label: "Contacts" },
+  { href: "/dashboard/pipeline", icon: Kanban, label: "Pipeline" },
   { href: "/dashboard/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/dashboard/settings", icon: Settings, label: "Settings" },
   { href: "/dashboard/billing", icon: CreditCard, label: "Billing" },
