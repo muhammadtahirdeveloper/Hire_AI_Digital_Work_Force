@@ -17,6 +17,8 @@ Usage::
     print(result["content"], result["provider"], result["model"])
 """
 
+import hashlib
+import json
 import logging
 import os
 import time
@@ -27,6 +29,41 @@ from sqlalchemy import text
 from config.database import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------ #
+# Redis cache helper (lazy-init, optional)
+# ------------------------------------------------------------------ #
+
+_redis_client = None
+_redis_checked = False
+_CACHE_TTL = 3600  # 1 hour
+_CONFIG_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_redis():
+    """Get Redis client (lazy init, returns None if unavailable)."""
+    global _redis_client, _redis_checked
+    if _redis_checked:
+        return _redis_client
+    _redis_checked = True
+    try:
+        import redis
+        from config.settings import REDIS_URL
+        _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        _redis_client.ping()
+        logger.info("AI Router: Redis cache connected")
+    except Exception as exc:
+        logger.warning("AI Router: Redis unavailable, caching disabled: %s", exc)
+        _redis_client = None
+    return _redis_client
+
+
+def _cache_key(prefix: str, *parts: str) -> str:
+    """Build a deterministic cache key."""
+    raw = ":".join(parts)
+    h = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return f"hireai:{prefix}:{h}"
 
 
 class AIRouter:
@@ -109,8 +146,11 @@ class AIRouter:
         resolves the API key, and calls the correct provider method.
         If the primary provider fails, falls back to an alternate free
         provider before giving up.
+
+        Includes Redis caching: identical (system_prompt, user_message)
+        pairs return cached results for 1 hour.
         """
-        # 1. Load user config from user_agents table
+        # 1. Load user config from user_agents table (with cache)
         provider, api_key, tier = self._get_user_config(user_id)
 
         # 2. Enforce tier restrictions
@@ -122,6 +162,20 @@ class AIRouter:
         # 4. Get correct model for provider + tier
         model = self._get_model(provider, tier)
 
+        # 4b. Check Redis cache for identical request
+        r = _get_redis()
+        cache_k = _cache_key("ai", provider, model, system_prompt, user_message)
+        if r:
+            try:
+                cached = r.get(cache_k)
+                if cached:
+                    result = json.loads(cached)
+                    result["cached"] = True
+                    logger.debug("AI cache hit for key=%s", cache_k)
+                    return result
+            except Exception:
+                pass
+
         # 5. Call the correct provider (with fallback on failure)
         try:
             method = getattr(self, self.PROVIDER_MAP[provider])
@@ -129,6 +183,12 @@ class AIRouter:
                 system_prompt, user_message, resolved_key, model,
                 max_tokens, temperature,
             )
+            # Store in cache
+            if r:
+                try:
+                    r.setex(cache_k, _CACHE_TTL, json.dumps(result))
+                except Exception:
+                    pass
             return result
         except Exception as exc:
             logger.error("Provider %s failed: %s", provider, exc)
@@ -182,9 +242,23 @@ class AIRouter:
     def _get_user_config(self, user_id: str) -> tuple:
         """Read ai_provider, ai_api_key, tier from user_agents table.
 
+        Caches in Redis for 5 minutes to reduce DB queries.
+
         Returns:
             (provider, byok_key_or_none, tier)
         """
+        # Check Redis cache first
+        r = _get_redis()
+        config_key = f"hireai:ucfg:{user_id}"
+        if r:
+            try:
+                cached = r.get(config_key)
+                if cached:
+                    data = json.loads(cached)
+                    return (data["provider"], data.get("key"), data["tier"])
+            except Exception:
+                pass
+
         try:
             db = SessionLocal()
             try:
@@ -196,7 +270,17 @@ class AIRouter:
                     {"uid": user_id},
                 ).fetchone()
                 if row:
-                    return (row[0] or "groq", row[1], row[2] or "trial")
+                    result = (row[0] or "groq", row[1], row[2] or "trial")
+                    # Cache (don't cache API keys for security — only provider+tier)
+                    if r:
+                        try:
+                            r.setex(config_key, _CONFIG_CACHE_TTL, json.dumps({
+                                "provider": result[0],
+                                "tier": result[2],
+                            }))
+                        except Exception:
+                            pass
+                    return result
             finally:
                 db.close()
         except Exception as exc:

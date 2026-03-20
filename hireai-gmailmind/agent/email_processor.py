@@ -5,6 +5,7 @@ This is the primary entry point for processing a user's inbox,
 used by scheduler tasks and API endpoints.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -22,6 +23,9 @@ from agent.tool_wrappers import (
 from config.database import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+# Max concurrent email processing tasks
+_MAX_CONCURRENT = 5
 
 
 class EmailProcessor:
@@ -85,43 +89,55 @@ class EmailProcessor:
             emails = emails[:remaining]
             self.logger.info("Capping to %d emails (daily limit)", remaining)
 
-        # 4. Get agent for this user
+        # 4. Smart pre-filtering: skip emails that don't need AI
+        filtered_emails = self._pre_filter(emails, service, processed_label_id)
+        self.logger.info(
+            "Pre-filter: %d/%d emails need AI processing",
+            len(filtered_emails), len(emails),
+        )
+
+        # 5. Get agent for this user
         agent = self._get_agent()
 
-        # 5. Process each email
-        results = []
-        processed = 0
-        for email in emails:
-            try:
-                decision = await agent.process_email(self.user_id, email)
-                action_result = await self._execute(service, email, decision)
-                self._log(email, decision, action_result)
-                processed += 1
+        # 6. Process emails concurrently (up to _MAX_CONCURRENT at a time)
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
 
-                # Mark as processed to prevent duplicate processing
-                msg_id = email.get("id", "")
-                if msg_id and processed_label_id:
-                    self._add_label(service, msg_id, processed_label_id)
+        async def _process_one(email: dict) -> dict:
+            async with semaphore:
+                try:
+                    decision = await agent.process_email(self.user_id, email)
+                    action_result = await self._execute(service, email, decision)
+                    self._log(email, decision, action_result)
 
-                results.append({
-                    "email_from": email.get("from", email.get("sender", "")),
-                    "subject": email.get("subject", ""),
-                    "action": decision.get("action", "unknown"),
-                    "provider": decision.get("provider", "unknown"),
-                    "model": decision.get("model", "unknown"),
-                    "status": action_result.get("status", "processed"),
-                })
-            except Exception as exc:
-                self.logger.error("Email processing failed: %s", exc)
-                results.append({
-                    "email_from": email.get("from", ""),
-                    "error": str(exc),
-                })
+                    # Mark as processed to prevent duplicate processing
+                    msg_id = email.get("id", "")
+                    if msg_id and processed_label_id:
+                        self._add_label(service, msg_id, processed_label_id)
 
-        # 6. Update agent status
+                    return {
+                        "email_from": email.get("from", email.get("sender", "")),
+                        "subject": email.get("subject", ""),
+                        "action": decision.get("action", "unknown"),
+                        "provider": decision.get("provider", "unknown"),
+                        "model": decision.get("model", "unknown"),
+                        "status": action_result.get("status", "processed"),
+                        "ok": True,
+                    }
+                except Exception as exc:
+                    self.logger.error("Email processing failed: %s", exc)
+                    return {
+                        "email_from": email.get("from", ""),
+                        "error": str(exc),
+                        "ok": False,
+                    }
+
+        results = await asyncio.gather(*[_process_one(e) for e in filtered_emails])
+        processed = sum(1 for r in results if r.get("ok"))
+
+        # 7. Update agent status
         self._update_status(processed)
 
-        return {"processed": processed, "total": len(emails), "results": results}
+        return {"processed": processed, "total": len(emails), "results": list(results)}
 
     def _get_auto_send(self) -> bool:
         """Check if auto-send is enabled.
@@ -221,6 +237,133 @@ class EmailProcessor:
                 db.close()
         except Exception:
             return 100
+
+    def _pre_filter(
+        self,
+        emails: list[dict],
+        service: Any,
+        processed_label_id: str | None,
+    ) -> list[dict]:
+        """Pre-filter emails before sending to AI.
+
+        Skips:
+        - Already processed emails (HireAI-Processed label)
+        - Blocked senders (blacklist)
+        - Blocked keywords in subject/body
+        - Noreply/automated senders (archived silently)
+
+        Returns only emails that need AI classification.
+        """
+        blocked_senders = self._get_blocked_senders()
+        blocked_keywords = self._get_blocked_keywords()
+
+        noreply_patterns = [
+            "noreply", "no-reply", "do-not-reply", "donotreply",
+            "automated", "mailer-daemon", "notification", "alerts",
+            "system", "postmaster", "bounce",
+        ]
+
+        filtered = []
+        for email in emails:
+            sender = email.get("sender", {})
+            sender_email = (
+                sender.get("email", "unknown")
+                if isinstance(sender, dict)
+                else str(sender)
+            ).lower()
+            subject = (email.get("subject", "") or "").lower()
+            body = (email.get("snippet", "") or email.get("body", "") or "").lower()
+            msg_id = email.get("id", "")
+
+            # Skip noreply senders — archive silently
+            if any(p in sender_email for p in noreply_patterns):
+                self.logger.debug("Pre-filter: skipping noreply sender %s", sender_email)
+                if service and msg_id:
+                    try:
+                        standalone_mark_as_read(service, msg_id)
+                        if processed_label_id:
+                            self._add_label(service, msg_id, processed_label_id)
+                    except Exception:
+                        pass
+                continue
+
+            # Skip blocked senders
+            if sender_email in blocked_senders:
+                self.logger.info("Pre-filter: blocked sender %s", sender_email)
+                if service and msg_id:
+                    try:
+                        standalone_mark_as_read(service, msg_id)
+                        if processed_label_id:
+                            self._add_label(service, msg_id, processed_label_id)
+                    except Exception:
+                        pass
+                continue
+
+            # Skip blocked keywords
+            skip = False
+            for kw in blocked_keywords:
+                if kw in subject or kw in body:
+                    self.logger.info("Pre-filter: blocked keyword '%s' in email from %s", kw, sender_email)
+                    if service and msg_id:
+                        try:
+                            standalone_mark_as_read(service, msg_id)
+                            if processed_label_id:
+                                self._add_label(service, msg_id, processed_label_id)
+                        except Exception:
+                            pass
+                    skip = True
+                    break
+            if skip:
+                continue
+
+            filtered.append(email)
+
+        return filtered
+
+    def _get_blocked_senders(self) -> set[str]:
+        """Get set of blocked sender emails from user config."""
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text("SELECT config FROM user_agents WHERE user_id = :uid LIMIT 1"),
+                    {"uid": self.user_id},
+                ).fetchone()
+                if row and row[0]:
+                    config = row[0] if isinstance(row[0], dict) else {}
+                    # Support both comma-separated string and list
+                    bl = config.get("blacklist_emails", []) or config.get("blacklist", "")
+                    if isinstance(bl, str):
+                        return {e.strip().lower() for e in bl.split(",") if e.strip()}
+                    if isinstance(bl, list):
+                        return {e.strip().lower() for e in bl if e.strip()}
+            finally:
+                db.close()
+        except Exception:
+            pass
+        return set()
+
+    def _get_blocked_keywords(self) -> set[str]:
+        """Get set of blocked keywords from user config."""
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text("SELECT config FROM user_agents WHERE user_id = :uid LIMIT 1"),
+                    {"uid": self.user_id},
+                ).fetchone()
+                if row and row[0]:
+                    config = row[0] if isinstance(row[0], dict) else {}
+                    bk = config.get("blocked_keywords", "")
+                    if isinstance(bk, str):
+                        return {k.strip().lower() for k in bk.split(",") if k.strip()}
+                    if isinstance(bk, list):
+                        return {k.strip().lower() for k in bk if k.strip()}
+            finally:
+                db.close()
+        except Exception:
+            pass
+        return set()
 
     def _ensure_label(self, service: Any, label_name: str) -> str | None:
         """Get or create a Gmail label, return its ID."""

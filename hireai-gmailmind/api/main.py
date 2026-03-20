@@ -105,7 +105,7 @@ app.include_router(gmail_webhook_router, tags=["Webhooks"])
 
 @app.on_event("startup")
 async def ensure_action_logs_schema():
-    """Add missing columns to action_logs if the table exists."""
+    """Add missing columns and performance indexes to action_logs."""
     try:
         from config.database import SessionLocal
         db = SessionLocal()
@@ -118,8 +118,22 @@ async def ensure_action_logs_schema():
                     db.execute(text(f"ALTER TABLE action_logs ADD COLUMN IF NOT EXISTS {col}"))
                 except Exception:
                     pass
+
+            # Performance indexes
+            indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_action_logs_user_id ON action_logs(user_id)",
+                "CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs(timestamp)",
+                "CREATE INDEX IF NOT EXISTS idx_action_logs_user_ts ON action_logs(user_id, timestamp)",
+                "CREATE INDEX IF NOT EXISTS idx_user_agents_user_id ON user_agents(user_id)",
+            ]
+            for idx_sql in indexes:
+                try:
+                    db.execute(text(idx_sql))
+                except Exception:
+                    pass
+
             db.commit()
-            logger.info("action_logs schema migration complete")
+            logger.info("action_logs schema + indexes migration complete")
         finally:
             db.close()
     except Exception as exc:
