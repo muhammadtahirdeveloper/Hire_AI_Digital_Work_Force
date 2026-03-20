@@ -187,12 +187,27 @@ class BaseAgent(ABC):
         category = self.classify_email(email)
         system_prompt = self.get_system_prompt(tier)
 
+        # Language-aware prompting
+        reply_lang = email.get("_reply_language", "en")
+        detected_lang = email.get("_detected_language", "en")
+
+        lang_names = {
+            "en": "English", "ur": "Urdu", "ar": "Arabic",
+            "hi": "Hindi", "es": "Spanish", "fr": "French",
+        }
+        reply_lang_name = lang_names.get(reply_lang, "English")
+
+        lang_instruction = ""
+        if reply_lang != "en":
+            lang_instruction = f"\n\nIMPORTANT: The email is in {lang_names.get(detected_lang, 'English')}. Reply in {reply_lang_name}."
+
         user_message = self.format_email_summary(email)
         user_message += f"\n\nEmail Category: {category}"
+        user_message += lang_instruction
         user_message += "\n\nDecide: AUTO_REPLY, DRAFT_REPLY, LABEL_ARCHIVE, SCHEDULE_FOLLOWUP, or ESCALATE"
         user_message += "\nProvide your response in this format:"
         user_message += "\nACTION: <action>"
-        user_message += "\nREPLY: <reply text if applicable>"
+        user_message += f"\nREPLY: <reply text if applicable — write in {reply_lang_name}>"
         user_message += "\nREASON: <brief reason>"
 
         result = await self.ai_router.generate(

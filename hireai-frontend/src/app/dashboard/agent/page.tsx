@@ -129,14 +129,15 @@ const modelDescriptions: Record<string, string> = {
 };
 
 const languages = [
+  "Auto (Match Email)",
   "English",
   "Urdu",
   "Arabic",
+  "Hindi",
   "Spanish",
   "French",
   "German",
   "Chinese",
-  "Hindi",
 ];
 
 const timezones = [
@@ -218,7 +219,7 @@ export default function AgentManagementPage() {
     businessName: "",
     userName: "",
     businessDescription: "",
-    replyLanguage: "English",
+    replyLanguage: "Auto (Match Email)",
     replyTone: "friendly",
     workingHoursEnabled: true,
     workingHoursFrom: "09:00",

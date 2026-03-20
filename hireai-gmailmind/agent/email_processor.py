@@ -27,6 +27,45 @@ logger = logging.getLogger(__name__)
 # Max concurrent email processing tasks
 _MAX_CONCURRENT = 5
 
+# Supported languages for detection and reply
+SUPPORTED_LANGUAGES = {
+    "en": "English",
+    "ur": "Urdu",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "es": "Spanish",
+    "fr": "French",
+}
+
+# Language-specific reply templates (fallback when AI is unavailable)
+LANGUAGE_TEMPLATES = {
+    "ur": {
+        "job_application": "آپ کی درخواست موصول ہوئی، جلد جواب ملے گا",
+        "inquiry": "آپ کا شکریہ، ہم جلد رابطہ کریں گے",
+        "urgent": "آپ کا پیغام فوری توجہ کے لیے بھیج دیا گیا",
+    },
+    "ar": {
+        "job_application": "تم استلام طلبك، سنرد قريباً",
+        "inquiry": "شكراً لتواصلك، سنرد عليك في أقرب وقت",
+        "urgent": "تمت إحالة رسالتك للمراجعة العاجلة",
+    },
+    "hi": {
+        "job_application": "आपका आवेदन प्राप्त हुआ है, जल्द ही उत्तर दिया जाएगा",
+        "inquiry": "आपकी पूछताछ के लिए धन्यवाद, हम जल्द ही संपर्क करेंगे",
+        "urgent": "आपका संदेश तत्काल ध्यान के लिए भेज दिया गया है",
+    },
+    "es": {
+        "job_application": "Hemos recibido su solicitud, le responderemos pronto",
+        "inquiry": "Gracias por su consulta, nos pondremos en contacto pronto",
+        "urgent": "Su mensaje ha sido escalado para atención urgente",
+    },
+    "fr": {
+        "job_application": "Votre candidature a été reçue, nous vous répondrons bientôt",
+        "inquiry": "Merci pour votre demande, nous vous contacterons bientôt",
+        "urgent": "Votre message a été transmis pour attention urgente",
+    },
+}
+
 
 class EmailProcessor:
     """High-level email processing pipeline.
@@ -105,7 +144,15 @@ class EmailProcessor:
         async def _process_one(email: dict) -> dict:
             async with semaphore:
                 try:
+                    # Detect email language before processing
+                    detected_lang = self._detect_language(email)
+                    reply_lang = self._get_reply_language(detected_lang)
+                    email["_detected_language"] = detected_lang
+                    email["_reply_language"] = reply_lang
+
                     decision = await agent.process_email(self.user_id, email)
+                    decision["detected_language"] = detected_lang
+                    decision["reply_language"] = reply_lang
                     action_result = await self._execute(service, email, decision)
                     self._log(email, decision, action_result)
 
@@ -419,6 +466,73 @@ class EmailProcessor:
             self.logger.error("Failed to build Gmail service: %s", exc)
             return None
 
+    def _detect_language(self, email: dict) -> str:
+        """Detect the language of an email using langdetect.
+
+        Returns ISO 639-1 code (e.g. 'en', 'ur', 'ar').
+        Falls back to 'en' if detection fails.
+        """
+        try:
+            from langdetect import detect
+            subject = email.get("subject", "") or ""
+            body = email.get("body", "") or email.get("snippet", "") or ""
+            text_sample = f"{subject} {body}".strip()
+
+            if len(text_sample) < 10:
+                return "en"
+
+            lang = detect(text_sample)
+            if lang in SUPPORTED_LANGUAGES:
+                self.logger.info("Detected language: %s (%s)", lang, SUPPORTED_LANGUAGES[lang])
+                return lang
+
+            return "en"
+        except Exception:
+            return "en"
+
+    def _get_reply_language(self, detected_lang: str) -> str:
+        """Get the reply language for this user.
+
+        Checks user config for reply_language preference.
+        If 'auto' or not set, matches the incoming email language.
+        """
+        # Map frontend language names to ISO codes
+        _name_to_code = {
+            "english": "en", "urdu": "ur", "arabic": "ar",
+            "hindi": "hi", "spanish": "es", "french": "fr",
+            "german": "de", "chinese": "zh",
+        }
+
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(
+                    text("""
+                        SELECT config FROM user_agents
+                        WHERE user_id = :uid LIMIT 1
+                    """),
+                    {"uid": self.user_id},
+                ).fetchone()
+
+                if row and row[0]:
+                    config_data = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+                    pref = config_data.get("reply_language", "auto")
+                    if pref and "auto" not in pref.lower():
+                        # Try direct ISO code match
+                        if pref in SUPPORTED_LANGUAGES:
+                            return pref
+                        # Try name-to-code mapping
+                        code = _name_to_code.get(pref.lower())
+                        if code and code in SUPPORTED_LANGUAGES:
+                            return code
+            finally:
+                db.close()
+        except Exception:
+            pass
+
+        # Auto: match incoming language
+        return detected_lang
+
     def _get_agent(self) -> Any:
         """Get the correct agent for this user via Orchestrator.
 
@@ -588,6 +702,8 @@ class EmailProcessor:
                             "user_id": self.user_id,
                             "sent_at": action_result.get("sent_at", ""),
                             "reply_content": action_result.get("reply_content", ""),
+                            "detected_language": decision.get("detected_language", "en"),
+                            "reply_language": decision.get("reply_language", "en"),
                         }),
                     },
                 )

@@ -18,3 +18,4 @@ pydantic
 httpx
 PyJWT
 bcrypt
+langdetect

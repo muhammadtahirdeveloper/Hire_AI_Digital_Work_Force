@@ -172,6 +172,30 @@ class GeneralAgent(BaseAgent):
             r"miss you", r"love\b", r"family",
             r"catch up", r"long time",
         ],
+        # Urdu keywords
+        "urdu_job_application": [
+            r"درخواست", r"نوکری", r"ملازمت", r"سی\s*وی",
+            r"تجربہ", r"عہدہ",
+        ],
+        "urdu_inquiry": [
+            r"قیمت", r"پوچھنا", r"معلومات", r"رابطہ",
+            r"دلچسپی", r"خدمات",
+        ],
+        "urdu_urgent": [
+            r"فوری", r"ضروری", r"قانونی\s*نوٹس", r"آخری\s*تاریخ",
+        ],
+        # Arabic keywords
+        "arabic_job_application": [
+            r"طلب\s*وظيفة", r"سيرة\s*ذاتية", r"التقديم",
+            r"المرشح", r"الوظيفة",
+        ],
+        "arabic_inquiry": [
+            r"استفسار", r"الأسعار", r"عرض\s*أسعار", r"التعاون",
+            r"الشراكة", r"الخدمات",
+        ],
+        "arabic_urgent": [
+            r"عاجل", r"طارئ", r"إشعار\s*قانوني", r"الموعد\s*النهائي",
+        ],
     }
 
     # ------------------------------------------------------------------
@@ -189,6 +213,14 @@ class GeneralAgent(BaseAgent):
         "spam": "SPAM",
         "urgent": "ESCALATE",
         "business": "INBOX",
+        # Urdu categories
+        "urdu_job_application": "AUTO_REPLY",
+        "urdu_inquiry": "AUTO_REPLY",
+        "urdu_urgent": "ESCALATE",
+        # Arabic categories
+        "arabic_job_application": "AUTO_REPLY",
+        "arabic_inquiry": "AUTO_REPLY",
+        "arabic_urgent": "ESCALATE",
     }
 
     # ------------------------------------------------------------------
