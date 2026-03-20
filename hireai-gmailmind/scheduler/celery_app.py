@@ -112,6 +112,13 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=3, minute=0),
         "options": {"queue": "agent"},
     },
+
+    # --- Event reminders: every 30 minutes ---
+    "send-event-reminders": {
+        "task": "scheduler.tasks.send_event_reminders",
+        "schedule": crontab(minute="*/30"),
+        "options": {"queue": "followups"},
+    },
 }
 
 # Queue routing: realtime (high priority) > agent > followups > reports
@@ -125,6 +132,7 @@ app.conf.task_routes = {
     "scheduler.tasks.send_real_estate_weekly_report": {"queue": "reports"},
     "scheduler.tasks.send_ecommerce_weekly_report": {"queue": "reports"},
     "scheduler.tasks.renew_gmail_watches": {"queue": "agent"},
+    "scheduler.tasks.send_event_reminders": {"queue": "followups"},
 }
 # Worker consumes queues in priority order:
 # celery -A scheduler.celery_app worker -Q realtime,agent,default,followups,reports

@@ -304,12 +304,19 @@ For maintenance requests, acknowledge urgency and set clear timelines."""
             user_id, sender_email, property_address, "viewing"
         )
 
-        # Try to schedule a viewing via calendar
+        # Try to schedule a viewing via calendar (with smart scheduling)
         calendar_event = None
         scheduled_slot = None
         try:
-            from tools.calendar_tools import build_calendar_service, get_available_slots, create_calendar_event
+            from tools.calendar_tools import (
+                build_calendar_service, get_available_slots, create_calendar_event,
+                get_user_scheduling_config, detect_meeting_duration,
+            )
             from datetime import datetime, timedelta, timezone as tz
+
+            email_text = f"{email.get('subject', '')} {email.get('body', '')}"
+            duration = detect_meeting_duration(email_text)
+            sched_config = get_user_scheduling_config(user_id)
 
             cal_service = build_calendar_service(user_id)
             if cal_service:
@@ -318,7 +325,11 @@ For maintenance requests, acknowledge urgency and set clear timelines."""
                     service=cal_service,
                     date_range_start=now,
                     date_range_end=now + timedelta(days=7),
-                    duration_minutes=30,
+                    duration_minutes=duration,
+                    working_hours=sched_config["working_hours"],
+                    blocked_days=sched_config["blocked_days"],
+                    buffer_minutes=sched_config["buffer_minutes"],
+                    timezone_offset=sched_config["timezone_offset"],
                 )
 
                 if slots:
@@ -326,7 +337,7 @@ For maintenance requests, acknowledge urgency and set clear timelines."""
                     slot_dt = datetime.fromisoformat(scheduled_slot)
                     if slot_dt.tzinfo is None:
                         slot_dt = slot_dt.replace(tzinfo=tz.utc)
-                    end_dt = slot_dt + timedelta(minutes=30)
+                    end_dt = slot_dt + timedelta(minutes=duration)
 
                     calendar_event = create_calendar_event(
                         service=cal_service,

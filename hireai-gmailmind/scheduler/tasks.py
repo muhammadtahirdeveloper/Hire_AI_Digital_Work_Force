@@ -1190,3 +1190,186 @@ def renew_gmail_watches(self) -> dict[str, Any]:
             "duration_s": round(duration, 2),
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+# ============================================================================
+# Task 9 — Send Event Reminder Emails
+# ============================================================================
+
+
+@app.task(bind=True, name="scheduler.tasks.send_event_reminders")
+def send_event_reminders(self) -> dict[str, Any]:
+    """Send reminder emails for upcoming calendar events.
+
+    Checks for interviews/events due within the next 24 hours and 1 hour,
+    and sends appropriate reminder emails to attendees.
+
+    Runs every 30 minutes via Celery Beat.
+
+    Returns:
+        Dict with status and count of reminders sent.
+    """
+    start = time.monotonic()
+    logger.info("[send_event_reminders] START")
+
+    reminders_sent = 0
+    errors = 0
+
+    try:
+        from datetime import timedelta
+
+        db = SessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            one_hour = now + timedelta(hours=1)
+            twenty_four_hours = now + timedelta(hours=24)
+
+            # Find interviews needing reminders:
+            # 1) 24-hour reminder: due in 23.5-24.5 hours, not yet reminded_24h
+            # 2) 1-hour reminder: due in 0.5-1.5 hours, not yet reminded_1h
+            rows = db.execute(
+                text("""
+                    SELECT id, user_id, candidate_email, scheduled_at,
+                           duration_minutes, interview_type, calendar_event_id,
+                           COALESCE(notes, '') as notes
+                    FROM interviews
+                    WHERE status = 'scheduled'
+                      AND scheduled_at > :now
+                      AND (
+                          (scheduled_at BETWEEN :t24_start AND :t24_end
+                           AND (notes NOT LIKE '%%reminded_24h%%' OR notes IS NULL))
+                          OR
+                          (scheduled_at BETWEEN :t1_start AND :t1_end
+                           AND (notes NOT LIKE '%%reminded_1h%%' OR notes IS NULL))
+                      )
+                    ORDER BY scheduled_at ASC
+                """),
+                {
+                    "now": now,
+                    "t24_start": twenty_four_hours - timedelta(minutes=30),
+                    "t24_end": twenty_four_hours + timedelta(minutes=30),
+                    "t1_start": one_hour - timedelta(minutes=30),
+                    "t1_end": one_hour + timedelta(minutes=30),
+                },
+            ).fetchall()
+        finally:
+            db.close()
+
+        if not rows:
+            duration = time.monotonic() - start
+            return {"status": "success", "reminders_sent": 0, "duration_s": round(duration, 2)}
+
+        for row in rows:
+            interview_id = row[0]
+            user_id = row[1]
+            candidate_email = row[2]
+            scheduled_at = row[3]
+            duration_min = row[4] or 45
+            interview_type = row[5] or "video"
+            calendar_event_id = row[6]
+            notes = row[7] or ""
+
+            # Determine which reminder to send
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+            time_until = (scheduled_at - now).total_seconds() / 3600  # hours
+
+            if 0.5 <= time_until <= 1.5 and "reminded_1h" not in notes:
+                reminder_type = "1h"
+                subject = f"Reminder: Your interview is in 1 hour"
+                body = (
+                    f"This is a reminder that your {interview_type} interview "
+                    f"is scheduled for {scheduled_at.strftime('%B %d at %H:%M UTC')}.\n\n"
+                    f"Duration: {duration_min} minutes\n"
+                )
+            elif 23 <= time_until <= 25 and "reminded_24h" not in notes:
+                reminder_type = "24h"
+                subject = f"Reminder: Interview tomorrow"
+                body = (
+                    f"This is a reminder that your {interview_type} interview "
+                    f"is scheduled for tomorrow, {scheduled_at.strftime('%B %d at %H:%M UTC')}.\n\n"
+                    f"Duration: {duration_min} minutes\n"
+                    f"Please make sure to prepare any necessary materials.\n"
+                )
+            else:
+                continue
+
+            # Send the reminder via Gmail
+            try:
+                from tools.calendar_tools import build_calendar_service
+                from agent.tool_wrappers import standalone_reply_to_email
+
+                # Build Gmail service for the user to send reminder
+                from memory.long_term import get_user_credentials
+                from config.credentials import refresh_credentials
+                from googleapiclient.discovery import build
+
+                creds_data = get_user_credentials(user_id)
+                if creds_data:
+                    credentials = refresh_credentials(creds_data, user_id=user_id)
+                    if credentials:
+                        gmail_svc = build("gmail", "v1", credentials=credentials)
+
+                        # Create and send the reminder email
+                        import base64
+                        from email.mime.text import MIMEText
+
+                        message = MIMEText(body)
+                        message["to"] = candidate_email
+                        message["subject"] = subject
+
+                        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+                        gmail_svc.users().messages().send(
+                            userId="me",
+                            body={"raw": raw},
+                        ).execute()
+
+                        # Mark as reminded
+                        db2 = SessionLocal()
+                        try:
+                            flag = f"reminded_{reminder_type}"
+                            new_notes = f"{notes} {flag}".strip()
+                            db2.execute(
+                                text("UPDATE interviews SET notes = :notes WHERE id = :iid"),
+                                {"notes": new_notes, "iid": interview_id},
+                            )
+                            db2.commit()
+                        finally:
+                            db2.close()
+
+                        reminders_sent += 1
+                        logger.info(
+                            "[send_event_reminders] Sent %s reminder to %s for interview %d",
+                            reminder_type, candidate_email, interview_id,
+                        )
+
+            except Exception as exc:
+                errors += 1
+                logger.error(
+                    "[send_event_reminders] Failed for interview %d: %s",
+                    interview_id, exc,
+                )
+
+        duration = time.monotonic() - start
+        logger.info(
+            "[send_event_reminders] DONE sent=%d errors=%d duration=%.1fs",
+            reminders_sent, errors, duration,
+        )
+
+        return {
+            "status": "success",
+            "reminders_sent": reminders_sent,
+            "errors": errors,
+            "duration_s": round(duration, 2),
+        }
+
+    except Exception as exc:
+        duration = time.monotonic() - start
+        logger.exception(
+            "[send_event_reminders] ERROR after %.1fs: %s", duration, exc,
+        )
+        return {
+            "status": "error",
+            "duration_s": round(duration, 2),
+            "error": f"{type(exc).__name__}: {exc}",
+        }

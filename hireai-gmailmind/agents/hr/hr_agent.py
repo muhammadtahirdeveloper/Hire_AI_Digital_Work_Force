@@ -41,6 +41,12 @@ class HRAgent(BaseAgent):
             r"candidate", r"portfolio", r"cover letter",
             r"job application", r"apply", r"applicant",
         ],
+        "reschedule_request": [
+            r"reschedule", r"can we move", r"change.*time",
+            r"different.*(?:day|time|slot)", r"postpone",
+            r"can't make it", r"cannot make it", r"unable to attend",
+            r"need to change", r"new time",
+        ],
         "interview_request": [
             r"interview", r"meeting", r"schedule",
             r"availability", r"slot", r"time for",
@@ -161,6 +167,9 @@ class HRAgent(BaseAgent):
 
         if category == "cv_application":
             return self._handle_cv_application(email, user_id, company_name)
+
+        if category == "reschedule_request":
+            return self._handle_reschedule(email, user_id, company_name)
 
         if category == "interview_request":
             return self._handle_interview_request(email, user_id, company_name)
@@ -287,16 +296,56 @@ class HRAgent(BaseAgent):
     ) -> dict[str, Any]:
         """Handle an interview scheduling request.
 
-        1. Find available calendar slots
-        2. Auto-schedule the first available slot
-        3. Create calendar event with attendee
-        4. Return confirmation details
+        1. Detect meeting duration from email context
+        2. Load user's scheduling config (working hours, timezone, buffer)
+        3. Find available calendar slots respecting config
+        4. Auto-schedule the first available slot
+        5. Create calendar event with attendee
         """
         sender_email = self._get_sender_email(email)
         subject = email.get("subject", "")
+        body = email.get("body", "") or email.get("snippet", "")
+        email_text = f"{subject} {body}"
 
-        # Step 1: Find available slots
-        slots = self.interview_scheduler.find_available_slots(user_id)
+        # Step 1: Detect meeting duration from email content
+        from tools.calendar_tools import (
+            build_calendar_service, create_calendar_event,
+            get_available_slots, get_user_scheduling_config,
+            detect_meeting_duration,
+        )
+        from datetime import datetime, timedelta, timezone as tz
+
+        duration = detect_meeting_duration(email_text)
+
+        # Step 2: Load user's scheduling preferences
+        sched_config = get_user_scheduling_config(user_id)
+
+        # Step 3: Find available slots with smart scheduling
+        calendar_event = None
+        scheduled_slot = None
+        slots = []
+
+        try:
+            cal_service = build_calendar_service(user_id)
+            if cal_service:
+                now = datetime.now(tz.utc)
+                slots_raw = get_available_slots(
+                    service=cal_service,
+                    date_range_start=now,
+                    date_range_end=now + timedelta(days=7),
+                    duration_minutes=duration,
+                    working_hours=sched_config["working_hours"],
+                    blocked_days=sched_config["blocked_days"],
+                    buffer_minutes=sched_config["buffer_minutes"],
+                    timezone_offset=sched_config["timezone_offset"],
+                )
+                slots = [s["start"] for s in slots_raw]
+        except Exception as exc:
+            logger.warning("%s: Calendar slots failed: %s", self.agent_name, exc)
+
+        if not slots:
+            # Fallback to default slots
+            slots = self.interview_scheduler.find_available_slots(user_id, duration_minutes=duration)
 
         if not slots:
             self.log_action(user_id, "no_interview_slots", f"No slots for {sender_email}")
@@ -307,19 +356,15 @@ class HRAgent(BaseAgent):
                 "details": "No available interview slots found.",
             }
 
-        # Step 2: Try to create calendar event with the first slot
-        calendar_event = None
+        # Step 4: Create calendar event with the first slot
         scheduled_slot = slots[0]
         try:
-            from tools.calendar_tools import build_calendar_service, create_calendar_event
-            from datetime import datetime, timedelta, timezone as tz
-
-            cal_service = build_calendar_service(user_id)
+            cal_service = cal_service if 'cal_service' in dir() else build_calendar_service(user_id)
             if cal_service:
                 slot_dt = datetime.fromisoformat(scheduled_slot)
                 if slot_dt.tzinfo is None:
                     slot_dt = slot_dt.replace(tzinfo=tz.utc)
-                end_dt = slot_dt + timedelta(minutes=60)
+                end_dt = slot_dt + timedelta(minutes=duration)
 
                 job_title = self._extract_job_title(subject) or "Interview"
                 calendar_event = create_calendar_event(
@@ -328,28 +373,117 @@ class HRAgent(BaseAgent):
                     start_time=slot_dt,
                     end_time=end_dt,
                     attendees=[sender_email],
-                    description=f"Interview for {job_title} at {company_name}.\nCandidate: {sender_email}",
+                    description=f"Interview for {job_title} at {company_name}.\nDuration: {duration} min\nCandidate: {sender_email}",
                 )
                 logger.info(
-                    "%s: Created calendar event for interview with %s",
-                    self.agent_name, sender_email,
+                    "%s: Created %d-min calendar event for interview with %s",
+                    self.agent_name, duration, sender_email,
                 )
         except Exception as exc:
             logger.warning("%s: Calendar event creation failed: %s", self.agent_name, exc)
 
-        self.log_action(user_id, "schedule_interview", f"Scheduled interview with {sender_email} at {scheduled_slot}")
+        self.log_action(user_id, "schedule_interview", f"Scheduled {duration}min interview with {sender_email} at {scheduled_slot}")
 
         result = {
             "action": "interview_scheduled",
             "category": "interview_request",
             "available_slots": slots[:5],
             "scheduled_slot": scheduled_slot,
-            "details": f"Interview scheduled with {sender_email} at {scheduled_slot}.",
+            "duration_minutes": duration,
+            "details": f"Interview ({duration}min) scheduled with {sender_email} at {scheduled_slot}.",
         }
         if calendar_event:
             result["calendar_event_id"] = calendar_event.event_id
             result["calendar_link"] = calendar_event.html_link
 
+        return result
+
+    def _handle_reschedule(
+        self,
+        email: dict,
+        user_id: str,
+        company_name: str,
+    ) -> dict[str, Any]:
+        """Handle a reschedule request.
+
+        1. Find the existing interview for this sender
+        2. Cancel the old calendar event
+        3. Find a new slot
+        4. Create new calendar event
+        """
+        sender_email = self._get_sender_email(email)
+        subject = email.get("subject", "")
+        body = email.get("body", "") or email.get("snippet", "")
+
+        # Step 1: Find existing interview
+        from sqlalchemy import text as sa_text
+        from config.database import SessionLocal as SL
+
+        old_event_id = None
+        old_interview_id = None
+        job_title = self._extract_job_title(subject) or "Interview"
+        duration = 45  # Default interview duration
+
+        try:
+            db = SL()
+            try:
+                row = db.execute(
+                    sa_text("""
+                        SELECT id, calendar_event_id, duration_minutes
+                        FROM interviews
+                        WHERE user_id = :uid
+                          AND candidate_email = :email
+                          AND status = 'scheduled'
+                        ORDER BY scheduled_at DESC
+                        LIMIT 1
+                    """),
+                    {"uid": user_id, "email": sender_email},
+                ).fetchone()
+                if row:
+                    old_interview_id = row[0]
+                    old_event_id = row[1]
+                    duration = row[2] or 45
+            finally:
+                db.close()
+        except Exception:
+            pass
+
+        # Step 2: Cancel old calendar event
+        if old_event_id:
+            try:
+                from tools.calendar_tools import build_calendar_service, cancel_event
+                cal_service = build_calendar_service(user_id)
+                if cal_service:
+                    cancel_event(cal_service, old_event_id)
+                    logger.info("%s: Cancelled old event %s for reschedule", self.agent_name, old_event_id)
+            except Exception as exc:
+                logger.warning("%s: Failed to cancel old event: %s", self.agent_name, exc)
+
+        # Mark old interview as rescheduled
+        if old_interview_id:
+            try:
+                db = SL()
+                try:
+                    db.execute(
+                        sa_text("UPDATE interviews SET status = 'rescheduled' WHERE id = :iid"),
+                        {"iid": old_interview_id},
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                finally:
+                    db.close()
+            except Exception:
+                pass
+
+        # Step 3: Find new slot and create event (reuse interview_request logic)
+        result = self._handle_interview_request(email, user_id, company_name)
+        result["action"] = "rescheduled"
+        result["category"] = "reschedule_request"
+        result["old_event_cancelled"] = bool(old_event_id)
+        result["details"] = f"Rescheduled interview with {sender_email}. " + result.get("details", "")
+
+        self.log_action(user_id, "reschedule_interview", f"Rescheduled for {sender_email}")
         return result
 
     def _handle_candidate_followup(

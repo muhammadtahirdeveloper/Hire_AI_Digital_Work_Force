@@ -3,11 +3,13 @@
 Provides calendar-related operations:
   1. build_calendar_service       — Build Calendar API service from user credentials
   2. check_calendar_availability  — Query Google Calendar for free slots
-  3. get_available_slots          — Higher-level slot finder with working hours
+  3. get_available_slots          — Higher-level slot finder with working hours + buffer
   4. create_calendar_event        — Create a new event with attendees
   5. cancel_event                 — Cancel / delete a calendar event
   6. list_upcoming_events         — List upcoming events for next N days
-  7. schedule_followup            — Save a follow-up reminder to DB (Celery picks it up)
+  7. detect_meeting_duration      — Infer meeting length from email text
+  8. get_user_scheduling_config   — Load user's working hours / blocked days
+  9. schedule_followup            — Save a follow-up reminder to DB (Celery picks it up)
 
 All Google Calendar calls require a pre-authenticated
 ``googleapiclient.discovery.Resource`` built from the same OAuth2 credentials
@@ -15,6 +17,7 @@ used for Gmail (with the calendar scope added).
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -252,8 +255,55 @@ def create_calendar_event(
 
 
 # ---------------------------------------------------------------------------
-# 3. get_available_slots (higher-level helper)
+# 3. get_available_slots (higher-level helper with smart scheduling)
 # ---------------------------------------------------------------------------
+
+
+def get_user_scheduling_config(user_id: str) -> dict[str, Any]:
+    """Load user's scheduling preferences from user_agents config.
+
+    Returns a dict with:
+        - working_hours: (start_hour, end_hour) tuple
+        - timezone_offset: hours offset from UTC
+        - blocked_days: list of weekday ints (0=Mon..6=Sun)
+        - buffer_minutes: minutes between meetings
+
+    Falls back to sensible defaults if config not set.
+    """
+    defaults = {
+        "working_hours": (9, 17),
+        "timezone_offset": 0,
+        "blocked_days": [5, 6],  # Saturday, Sunday
+        "buffer_minutes": 15,
+    }
+    try:
+        from sqlalchemy import text as sa_text
+        db = SessionLocal()
+        try:
+            row = db.execute(
+                sa_text("SELECT config FROM user_agents WHERE user_id = :uid LIMIT 1"),
+                {"uid": user_id},
+            ).fetchone()
+            if row and row[0] and isinstance(row[0], dict):
+                cfg = row[0]
+                wh_start = int(cfg.get("working_hours_start", 9))
+                wh_end = int(cfg.get("working_hours_end", 17))
+                tz_offset = int(cfg.get("timezone_offset", 0))
+                blocked = cfg.get("blocked_days", [5, 6])
+                buffer = int(cfg.get("buffer_minutes", 15))
+                if isinstance(blocked, str):
+                    blocked = [int(d.strip()) for d in blocked.split(",") if d.strip()]
+                return {
+                    "working_hours": (wh_start, wh_end),
+                    "timezone_offset": tz_offset,
+                    "blocked_days": blocked,
+                    "buffer_minutes": buffer,
+                }
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return defaults
 
 
 def get_available_slots(
@@ -262,42 +312,117 @@ def get_available_slots(
     date_range_end: datetime,
     duration_minutes: int = 30,
     working_hours: tuple[int, int] = (9, 17),
+    blocked_days: list[int] | None = None,
+    buffer_minutes: int = 15,
+    timezone_offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Find available appointment slots within working hours.
+    """Find available appointment slots with smart scheduling.
 
-    Wraps check_calendar_availability and filters to working hours only.
+    Respects working hours, blocked days, timezone, and adds buffer time
+    between meetings so appointments are never back-to-back.
 
     Args:
         service: Authenticated Google Calendar API service.
         date_range_start: Start of the search window (UTC).
         date_range_end: End of the search window (UTC).
         duration_minutes: Required slot duration in minutes.
-        working_hours: Tuple of (start_hour, end_hour) in UTC.
+        working_hours: Tuple of (start_hour, end_hour) in user's local time.
+        blocked_days: List of weekday ints to skip (0=Mon..6=Sun). Defaults to [5,6].
+        buffer_minutes: Minutes of buffer to add between meetings. Default 15.
+        timezone_offset: Hours offset from UTC for the user's timezone.
 
     Returns:
-        List of dicts with 'start', 'end', 'duration_minutes' keys.
+        List of dicts with 'start', 'end', 'duration_minutes' keys (in UTC).
     """
+    if blocked_days is None:
+        blocked_days = [5, 6]
+
+    # Total slot needed = requested duration + buffer
+    total_needed = duration_minutes + buffer_minutes
+
     free_slots = check_calendar_availability(
-        service, date_range_start, date_range_end, duration_minutes,
+        service, date_range_start, date_range_end, total_needed,
     )
 
     wh_start, wh_end = working_hours
     available = []
+
     for slot in free_slots:
-        # Filter to working hours
-        if slot.start.hour < wh_start or slot.start.hour >= wh_end:
+        # Convert slot start to user's local time for working-hours check
+        local_hour = (slot.start.hour + timezone_offset) % 24
+
+        # Filter to working hours (in user's local time)
+        if local_hour < wh_start or local_hour >= wh_end:
             continue
-        # Skip weekends
-        if slot.start.weekday() in (5, 6):
+
+        # Check if the slot end would exceed working hours
+        local_end_hour = (slot.start.hour + timezone_offset + (duration_minutes // 60)) % 24
+        if local_end_hour > wh_end:
             continue
+
+        # Skip blocked days (check in user's local time)
+        local_day = slot.start + timedelta(hours=timezone_offset)
+        if local_day.weekday() in blocked_days:
+            continue
+
+        # The actual bookable slot is duration_minutes (buffer is reserved after)
+        slot_end = slot.start + timedelta(minutes=duration_minutes)
+
         available.append({
             "start": slot.start.isoformat(),
-            "end": slot.end.isoformat(),
-            "duration_minutes": slot.duration_minutes,
+            "end": slot_end.isoformat(),
+            "duration_minutes": duration_minutes,
         })
 
-    logger.info("get_available_slots: Found %d working-hour slots.", len(available))
+    logger.info(
+        "get_available_slots: Found %d slots (wh=%d-%d, buffer=%dmin, blocked=%s).",
+        len(available), wh_start, wh_end, buffer_minutes, blocked_days,
+    )
     return available
+
+
+# ---------------------------------------------------------------------------
+# Smart Duration Detection
+# ---------------------------------------------------------------------------
+
+# Pattern → duration in minutes
+_DURATION_PATTERNS: list[tuple[str, int]] = [
+    (r"quick\s*call", 15),
+    (r"brief\s*(?:call|chat|meeting)", 15),
+    (r"15\s*min", 15),
+    (r"interview", 45),
+    (r"property\s*viewing", 30),
+    (r"viewing", 30),
+    (r"demo", 30),
+    (r"presentation", 45),
+    (r"consultation", 60),
+    (r"onboarding", 60),
+    (r"30\s*min", 30),
+    (r"45\s*min", 45),
+    (r"60\s*min", 60),
+    (r"one\s*hour", 60),
+    (r"half\s*(?:an?\s*)?hour", 30),
+]
+
+
+def detect_meeting_duration(email_text: str) -> int:
+    """Infer meeting duration from email content.
+
+    Scans the email subject + body for keywords that hint at the
+    type of meeting and returns an appropriate duration in minutes.
+
+    Args:
+        email_text: Combined subject and body text.
+
+    Returns:
+        Duration in minutes (default 30).
+    """
+    lower = email_text.lower()
+    for pattern, duration in _DURATION_PATTERNS:
+        if re.search(pattern, lower):
+            logger.debug("detect_meeting_duration: matched '%s' → %d min", pattern, duration)
+            return duration
+    return 30  # Default
 
 
 # ---------------------------------------------------------------------------
