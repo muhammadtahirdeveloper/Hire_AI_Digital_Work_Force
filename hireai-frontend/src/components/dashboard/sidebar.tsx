@@ -15,6 +15,7 @@ import {
   X,
   Star,
   Shield,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Overview" },
   { href: "/dashboard/agent", icon: Bot, label: "Agent" },
   { href: "/dashboard/emails", icon: Mail, label: "Emails" },
+  { href: "/dashboard/contacts", icon: Users, label: "Contacts" },
   { href: "/dashboard/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/dashboard/settings", icon: Settings, label: "Settings" },
   { href: "/dashboard/billing", icon: CreditCard, label: "Billing" },

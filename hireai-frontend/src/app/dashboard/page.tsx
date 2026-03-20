@@ -17,6 +17,7 @@ import {
   ExternalLink,
   X,
   Zap,
+  User,
 } from "lucide-react";
 import {
   BarChart,
@@ -43,6 +44,7 @@ import {
   useWeeklySummary,
   useDailyVolume,
   useEscalatedEmails,
+  useContactStats,
 } from "@/hooks/use-dashboard";
 import { HealthIndicator } from "@/components/dashboard/health-indicator";
 import { CalendarWidget } from "@/components/dashboard/calendar-widget";
@@ -95,6 +97,7 @@ export default function DashboardOverviewPage() {
   const { data: weekly } = useWeeklySummary();
   const { data: dailyVolume } = useDailyVolume();
   const { data: escalated, mutate: mutateEscalated } = useEscalatedEmails();
+  const { data: contactStats } = useContactStats();
   const [syncing, setSyncing] = useState(false);
 
   const user = session?.user;
@@ -402,6 +405,24 @@ export default function DashboardOverviewPage() {
               <p className="mt-1 flex items-center gap-1 text-xs text-success">
                 <ArrowDownRight className="h-3 w-3" />
                 Fast replies
+              </p>
+            </CardBody>
+          </Card>
+
+          <Card hover>
+            <CardBody className="p-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-text-3">Contacts</p>
+                <User className="h-4 w-4 text-text-4" />
+              </div>
+              <p className="mt-2 text-3xl font-bold text-text">
+                {contactStats?.total_contacts ?? 0}
+              </p>
+              <p className="mt-1 text-xs text-text-4">
+                {contactStats?.new_this_week ?? 0} new this week
+                {(contactStats?.active_leads ?? 0) > 0 && (
+                  <> &middot; {contactStats?.active_leads} leads</>
+                )}
               </p>
             </CardBody>
           </Card>

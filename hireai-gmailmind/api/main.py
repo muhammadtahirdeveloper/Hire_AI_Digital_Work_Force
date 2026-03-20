@@ -140,6 +140,49 @@ async def ensure_action_logs_schema():
         logger.warning("action_logs migration skipped (non-fatal): %s", exc)
 
 
+@app.on_event("startup")
+async def ensure_contacts_table():
+    """Create contacts table if it doesn't exist."""
+    try:
+        from config.database import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS contacts (
+                    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    user_id VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NOT NULL,
+                    name VARCHAR(255),
+                    company VARCHAR(255),
+                    phone VARCHAR(50),
+                    category VARCHAR(50) DEFAULT 'other',
+                    status VARCHAR(50) DEFAULT 'active',
+                    tags TEXT,
+                    notes TEXT,
+                    first_contact_date TIMESTAMP DEFAULT NOW(),
+                    last_contact_date TIMESTAMP DEFAULT NOW(),
+                    total_emails INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            # Indexes
+            for idx in [
+                "CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id)",
+                "CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(user_id, email)",
+            ]:
+                try:
+                    db.execute(text(idx))
+                except Exception:
+                    pass
+            db.commit()
+            logger.info("contacts table migration complete")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("contacts migration skipped (non-fatal): %s", exc)
+
+
 # ============================================================================
 # Health check
 # ============================================================================

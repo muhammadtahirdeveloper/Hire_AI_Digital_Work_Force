@@ -109,6 +109,9 @@ class EmailProcessor:
                     action_result = await self._execute(service, email, decision)
                     self._log(email, decision, action_result)
 
+                    # Auto-create/update contact record
+                    self._upsert_contact(email)
+
                     # Mark as processed to prevent duplicate processing
                     msg_id = email.get("id", "")
                     if msg_id and processed_label_id:
@@ -576,6 +579,78 @@ class EmailProcessor:
                 db.close()
         except Exception as exc:
             self.logger.error("Failed to log action: %s", exc)
+
+    def _upsert_contact(self, email: dict) -> None:
+        """Create or update a contact record from email sender.
+
+        Extracts name, email, company from the sender and upserts
+        into the contacts table, updating last_contact_date and
+        incrementing total_emails.
+        """
+        try:
+            sender = email.get("sender", {})
+            if isinstance(sender, dict):
+                sender_email = sender.get("email", "").lower().strip()
+                sender_name = sender.get("name", "")
+            else:
+                sender_email = str(sender).lower().strip()
+                sender_name = ""
+
+            if not sender_email or sender_email == "unknown":
+                return
+
+            # Try to extract company from domain
+            company = ""
+            domain = sender_email.split("@")[-1] if "@" in sender_email else ""
+            if domain and domain not in (
+                "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+                "live.com", "icloud.com", "aol.com", "protonmail.com",
+            ):
+                company = domain.split(".")[0].title()
+
+            db = SessionLocal()
+            try:
+                # Check if contact exists
+                existing = db.execute(
+                    text("SELECT id, total_emails FROM contacts WHERE user_id = :uid AND email = :email LIMIT 1"),
+                    {"uid": self.user_id, "email": sender_email},
+                ).fetchone()
+
+                if existing:
+                    # Update existing contact
+                    db.execute(
+                        text("""
+                            UPDATE contacts
+                            SET last_contact_date = NOW(),
+                                total_emails = total_emails + 1,
+                                updated_at = NOW(),
+                                name = COALESCE(NULLIF(:name, ''), name),
+                                company = COALESCE(NULLIF(:company, ''), company)
+                            WHERE id = :cid
+                        """),
+                        {"cid": existing[0], "name": sender_name, "company": company},
+                    )
+                else:
+                    # Create new contact
+                    db.execute(
+                        text("""
+                            INSERT INTO contacts (user_id, email, name, company, total_emails,
+                                                  first_contact_date, last_contact_date)
+                            VALUES (:uid, :email, :name, :company, 1, NOW(), NOW())
+                        """),
+                        {
+                            "uid": self.user_id,
+                            "email": sender_email,
+                            "name": sender_name,
+                            "company": company,
+                        },
+                    )
+
+                db.commit()
+            finally:
+                db.close()
+        except Exception as exc:
+            self.logger.debug("Contact upsert failed (non-critical): %s", exc)
 
     def _update_status(self, processed: int) -> None:
         """Update user_agents with last run info.

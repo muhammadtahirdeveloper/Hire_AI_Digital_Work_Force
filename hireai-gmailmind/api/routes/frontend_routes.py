@@ -1620,3 +1620,340 @@ async def get_calendar_slots(
     except Exception as exc:
         logger.error("Calendar slots failed: %s", exc)
         return _ok({"slots": [], "calendar_connected": False})
+
+
+# ============================================================================
+# CONTACT ENDPOINTS
+# ============================================================================
+
+
+@router.get("/contacts")
+async def list_contacts(
+    user: dict = Depends(get_current_user),
+    search: str = Query("", max_length=200),
+    category: str = Query("", max_length=50),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """List contacts with pagination, search, and category filter."""
+    user_id = user.get("sub", "")
+    offset = (page - 1) * limit
+
+    try:
+        db = SessionLocal()
+        try:
+            # Build WHERE clause
+            conditions = ["user_id = :uid"]
+            params: dict = {"uid": user_id, "lim": limit, "off": offset}
+
+            if search:
+                conditions.append(
+                    "(LOWER(email) LIKE :search OR LOWER(name) LIKE :search OR LOWER(company) LIKE :search)"
+                )
+                params["search"] = f"%{search.lower()}%"
+            if category:
+                conditions.append("category = :cat")
+                params["cat"] = category
+
+            where = " AND ".join(conditions)
+
+            # Count
+            count_row = db.execute(
+                text(f"SELECT COUNT(*) FROM contacts WHERE {where}"), params,
+            ).fetchone()
+            total = count_row[0] if count_row else 0
+
+            # Fetch page
+            rows = db.execute(
+                text(f"""
+                    SELECT id, email, name, company, phone, category, status,
+                           tags, notes, first_contact_date, last_contact_date,
+                           total_emails, created_at
+                    FROM contacts
+                    WHERE {where}
+                    ORDER BY last_contact_date DESC NULLS LAST
+                    LIMIT :lim OFFSET :off
+                """),
+                params,
+            ).fetchall()
+
+            contacts = [
+                {
+                    "id": r[0],
+                    "email": r[1],
+                    "name": r[2] or "",
+                    "company": r[3] or "",
+                    "phone": r[4] or "",
+                    "category": r[5] or "other",
+                    "status": r[6] or "active",
+                    "tags": r[7].split(",") if r[7] else [],
+                    "notes": r[8] or "",
+                    "first_contact_date": r[9].isoformat() if r[9] else None,
+                    "last_contact_date": r[10].isoformat() if r[10] else None,
+                    "total_emails": r[11] or 0,
+                    "created_at": r[12].isoformat() if r[12] else None,
+                }
+                for r in rows
+            ]
+
+            return _ok({
+                "contacts": contacts,
+                "total": total,
+                "page": page,
+                "pages": max(1, (total + limit - 1) // limit),
+            })
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("List contacts failed: %s", exc)
+        return _ok({"contacts": [], "total": 0, "page": 1, "pages": 1})
+
+
+@router.get("/contacts/stats")
+async def contact_stats(user: dict = Depends(get_current_user)):
+    """Get contact statistics for dashboard widget."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            row = db.execute(
+                text("""
+                    SELECT
+                        COUNT(*) as total,
+                        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') as new_this_week,
+                        COUNT(*) FILTER (WHERE category = 'lead' AND status = 'active') as active_leads
+                    FROM contacts
+                    WHERE user_id = :uid
+                """),
+                {"uid": user_id},
+            ).fetchone()
+
+            return _ok({
+                "total_contacts": row[0] if row else 0,
+                "new_this_week": row[1] if row else 0,
+                "active_leads": row[2] if row else 0,
+            })
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Contact stats failed: %s", exc)
+        return _ok({"total_contacts": 0, "new_this_week": 0, "active_leads": 0})
+
+
+@router.get("/contacts/{contact_id}")
+async def get_contact(contact_id: str, user: dict = Depends(get_current_user)):
+    """Get a single contact by ID."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            row = db.execute(
+                text("""
+                    SELECT id, email, name, company, phone, category, status,
+                           tags, notes, first_contact_date, last_contact_date,
+                           total_emails, created_at, updated_at
+                    FROM contacts
+                    WHERE id = :cid AND user_id = :uid
+                """),
+                {"cid": contact_id, "uid": user_id},
+            ).fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail="Contact not found")
+
+            return _ok({
+                "id": row[0], "email": row[1], "name": row[2] or "",
+                "company": row[3] or "", "phone": row[4] or "",
+                "category": row[5] or "other", "status": row[6] or "active",
+                "tags": row[7].split(",") if row[7] else [],
+                "notes": row[8] or "",
+                "first_contact_date": row[9].isoformat() if row[9] else None,
+                "last_contact_date": row[10].isoformat() if row[10] else None,
+                "total_emails": row[11] or 0,
+                "created_at": row[12].isoformat() if row[12] else None,
+                "updated_at": row[13].isoformat() if row[13] else None,
+            })
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Get contact failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ContactCreate(BaseModel):
+    email: str
+    name: str = ""
+    company: str = ""
+    phone: str = ""
+    category: str = "other"
+    tags: list[str] = []
+    notes: str = ""
+
+
+@router.post("/contacts")
+async def create_contact(body: ContactCreate, user: dict = Depends(get_current_user)):
+    """Create a contact manually."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            result = db.execute(
+                text("""
+                    INSERT INTO contacts (user_id, email, name, company, phone, category, tags, notes)
+                    VALUES (:uid, :email, :name, :company, :phone, :cat, :tags, :notes)
+                    RETURNING id
+                """),
+                {
+                    "uid": user_id, "email": body.email.lower().strip(),
+                    "name": body.name, "company": body.company,
+                    "phone": body.phone, "cat": body.category,
+                    "tags": ",".join(body.tags) if body.tags else "",
+                    "notes": body.notes,
+                },
+            )
+            db.commit()
+            new_id = result.fetchone()[0]
+            return _ok({"id": new_id, "message": "Contact created"})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Create contact failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ContactUpdate(BaseModel):
+    name: Optional[str] = None
+    company: Optional[str] = None
+    phone: Optional[str] = None
+    category: Optional[str] = None
+    status: Optional[str] = None
+    tags: Optional[list[str]] = None
+    notes: Optional[str] = None
+
+
+@router.patch("/contacts/{contact_id}")
+async def update_contact(contact_id: str, body: ContactUpdate, user: dict = Depends(get_current_user)):
+    """Update a contact."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            sets = []
+            params: dict = {"cid": contact_id, "uid": user_id}
+
+            if body.name is not None:
+                sets.append("name = :name")
+                params["name"] = body.name
+            if body.company is not None:
+                sets.append("company = :company")
+                params["company"] = body.company
+            if body.phone is not None:
+                sets.append("phone = :phone")
+                params["phone"] = body.phone
+            if body.category is not None:
+                sets.append("category = :cat")
+                params["cat"] = body.category
+            if body.status is not None:
+                sets.append("status = :status")
+                params["status"] = body.status
+            if body.tags is not None:
+                sets.append("tags = :tags")
+                params["tags"] = ",".join(body.tags)
+            if body.notes is not None:
+                sets.append("notes = :notes")
+                params["notes"] = body.notes
+
+            if not sets:
+                return _ok({"message": "Nothing to update"})
+
+            sets.append("updated_at = NOW()")
+            db.execute(
+                text(f"UPDATE contacts SET {', '.join(sets)} WHERE id = :cid AND user_id = :uid"),
+                params,
+            )
+            db.commit()
+            return _ok({"message": "Contact updated"})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Update contact failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/contacts/{contact_id}")
+async def delete_contact(contact_id: str, user: dict = Depends(get_current_user)):
+    """Delete a contact."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(
+                text("DELETE FROM contacts WHERE id = :cid AND user_id = :uid"),
+                {"cid": contact_id, "uid": user_id},
+            )
+            db.commit()
+            return _ok({"message": "Contact deleted"})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Delete contact failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/contacts/{contact_id}/emails")
+async def contact_email_history(
+    contact_id: str,
+    user: dict = Depends(get_current_user),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Get email history for a contact."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            # Get contact email
+            contact_row = db.execute(
+                text("SELECT email FROM contacts WHERE id = :cid AND user_id = :uid"),
+                {"cid": contact_id, "uid": user_id},
+            ).fetchone()
+            if not contact_row:
+                raise HTTPException(status_code=404, detail="Contact not found")
+
+            contact_email = contact_row[0]
+
+            # Get action logs for this sender
+            rows = db.execute(
+                text("""
+                    SELECT id, email_from, action_taken, tool_used, outcome,
+                           metadata, timestamp
+                    FROM action_logs
+                    WHERE user_id = :uid AND email_from = :email
+                    ORDER BY timestamp DESC
+                    LIMIT :lim
+                """),
+                {"uid": user_id, "email": contact_email, "lim": limit},
+            ).fetchall()
+
+            emails = [
+                {
+                    "id": r[0],
+                    "from": r[1],
+                    "action": r[2],
+                    "tool": r[3],
+                    "outcome": r[4],
+                    "metadata": r[5] if isinstance(r[5], dict) else {},
+                    "timestamp": r[6].isoformat() if r[6] else None,
+                }
+                for r in rows
+            ]
+
+            return _ok({"emails": emails, "contact_email": contact_email})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Contact email history failed: %s", exc)
+        return _ok({"emails": []})

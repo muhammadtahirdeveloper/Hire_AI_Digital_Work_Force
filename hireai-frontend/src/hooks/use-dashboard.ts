@@ -184,3 +184,19 @@ export function useCalendarEvents(days = 7) {
     }
   );
 }
+
+// --- Contact hooks ---
+
+export interface ContactStats {
+  total_contacts: number;
+  new_this_week: number;
+  active_leads: number;
+}
+
+export function useContactStats() {
+  return useSWR<ContactStats>("/api/contacts/stats", fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+}
