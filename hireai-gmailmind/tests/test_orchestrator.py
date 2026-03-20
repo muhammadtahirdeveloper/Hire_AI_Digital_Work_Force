@@ -57,21 +57,37 @@ class TestAgentRegistry:
 # ============================================================================
 
 
+class TestFeatureGatesTrial:
+    def test_trial_features(self):
+        fg = FeatureGate()
+        features = fg.TIER_FEATURES["trial"]["features"]
+        assert "read" in features
+        assert "auto_reply" not in features
+
+    def test_trial_price(self):
+        fg = FeatureGate()
+        assert fg.TIER_FEATURES["trial"]["price"] == 0
+
+    def test_trial_max_emails(self):
+        fg = FeatureGate()
+        assert fg.TIER_FEATURES["trial"]["max_emails_per_day"] == 100
+
+
 class TestFeatureGatesTier1:
     def test_tier1_features(self):
         fg = FeatureGate()
         features = fg.TIER_FEATURES["tier1"]["features"]
         assert "read" in features
-        assert "auto_reply" not in features
+        assert "auto_reply" in features
         assert "cv_processing" not in features
 
     def test_tier1_price(self):
         fg = FeatureGate()
-        assert fg.TIER_FEATURES["tier1"]["price"] == 19
+        assert fg.TIER_FEATURES["tier1"]["price"] == 9
 
     def test_tier1_max_emails(self):
         fg = FeatureGate()
-        assert fg.TIER_FEATURES["tier1"]["max_emails_per_day"] == 200
+        assert fg.TIER_FEATURES["tier1"]["max_emails_per_day"] == 500
 
 
 class TestFeatureGatesTier2:
@@ -85,11 +101,11 @@ class TestFeatureGatesTier2:
 
     def test_tier2_price(self):
         fg = FeatureGate()
-        assert fg.TIER_FEATURES["tier2"]["price"] == 49
+        assert fg.TIER_FEATURES["tier2"]["price"] == 29
 
     def test_tier2_max_emails(self):
         fg = FeatureGate()
-        assert fg.TIER_FEATURES["tier2"]["max_emails_per_day"] == 500
+        assert fg.TIER_FEATURES["tier2"]["max_emails_per_day"] == 2000
 
 
 class TestFeatureGatesTier3:
@@ -100,23 +116,23 @@ class TestFeatureGatesTier3:
 
     def test_tier3_price(self):
         fg = FeatureGate()
-        assert fg.TIER_FEATURES["tier3"]["price"] == 99
+        assert fg.TIER_FEATURES["tier3"]["price"] == 59
 
-    def test_tier3_unlimited_emails(self):
+    def test_tier3_max_emails(self):
         fg = FeatureGate()
-        assert fg.TIER_FEATURES["tier3"]["max_emails_per_day"] == 999999
+        assert fg.TIER_FEATURES["tier3"]["max_emails_per_day"] == 10000
 
 
 class TestUpgradeMessage:
-    def test_upgrade_from_tier1(self):
+    def test_upgrade_from_trial(self):
         fg = FeatureGate()
-        msg = fg.get_upgrade_message("tier1", "auto_reply")
-        assert "tier2" in msg.lower() or "upgrade" in msg.lower()
+        msg = fg.get_upgrade_message("trial", "auto_reply")
+        assert "tier1" in msg.lower() or "upgrade" in msg.lower()
 
     def test_upgrade_message_contains_price(self):
         fg = FeatureGate()
-        msg = fg.get_upgrade_message("tier1", "auto_reply")
-        assert "$49" in msg or "49" in msg
+        msg = fg.get_upgrade_message("trial", "auto_reply")
+        assert "$9" in msg or "9" in msg
 
     def test_upgrade_for_unknown_feature(self):
         fg = FeatureGate()

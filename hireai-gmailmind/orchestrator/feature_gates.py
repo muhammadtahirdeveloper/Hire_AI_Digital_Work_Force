@@ -19,16 +19,22 @@ class FeatureGate:
     """Manages feature access based on subscription tiers."""
 
     TIER_FEATURES = {
-        "tier1": {
-            "price": 19,
+        "trial": {
+            "price": 0,
             "max_accounts": 1,
-            "max_emails_per_day": 200,
+            "max_emails_per_day": 100,
             "features": ["read", "label", "archive", "basic_email_report"],
         },
-        "tier2": {
-            "price": 49,
-            "max_accounts": 3,
+        "tier1": {
+            "price": 9,
+            "max_accounts": 1,
             "max_emails_per_day": 500,
+            "features": ["read", "label", "archive", "basic_email_report", "auto_reply"],
+        },
+        "tier2": {
+            "price": 29,
+            "max_accounts": 3,
+            "max_emails_per_day": 2000,
             "features": [
                 "read", "label", "archive", "auto_reply",
                 "escalation", "follow_up", "whatsapp_report",
@@ -41,9 +47,9 @@ class FeatureGate:
             ],
         },
         "tier3": {
-            "price": 99,
+            "price": 59,
             "max_accounts": 9999,
-            "max_emails_per_day": 999999,
+            "max_emails_per_day": 10000,
             "features": [
                 "all",
                 # Tier 3 advanced features
@@ -122,9 +128,10 @@ class FeatureGate:
             row = db.execute(
                 text("""
                     SELECT COUNT(*) FROM action_logs
-                    WHERE timestamp::date = :today
+                    WHERE user_id = :uid
+                      AND timestamp::date = :today
                 """),
-                {"today": today},
+                {"uid": user_id, "today": today},
             ).fetchone()
 
             count = row[0] if row else 0

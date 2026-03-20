@@ -78,7 +78,7 @@ class TestExecuteAction:
              patch.object(p, "_get_auto_send", return_value=True):
             decision = {
                 "action": "AUTO_REPLY",
-                "ai_response": "REPLY: Thanks!\nREASON: Quick response.",
+                "ai_response": "REPLY: Thank you for reaching out! We will get back to you shortly.\nREASON: Quick response.",
             }
             email = {"id": "msg_1", "subject": "Hello", "sender": {"email": "a@b.com"}}
 
@@ -268,6 +268,60 @@ class TestUpdateStatus:
 # ============================================================================
 
 
+class TestValidateReply:
+    def test_valid_reply(self):
+        p = _make_processor()
+        assert p._validate_reply("Thank you for your email. We will get back to you shortly.") is True
+
+    def test_empty_reply(self):
+        p = _make_processor()
+        assert p._validate_reply("") is False
+        assert p._validate_reply("   ") is False
+
+    def test_too_short_reply(self):
+        p = _make_processor()
+        assert p._validate_reply("Hi") is False
+
+    def test_placeholder_reply(self):
+        p = _make_processor()
+        assert p._validate_reply("Hello [your name], thank you!") is False
+        assert p._validate_reply("Please INSERT_HERE your details") is False
+        assert p._validate_reply("Template {{variable}} text") is False
+
+    def test_normal_reply_passes(self):
+        p = _make_processor()
+        assert p._validate_reply("We received your CV and will review it shortly. Thanks!") is True
+
+
+class TestDailyLimit:
+    @patch("agent.email_processor.SessionLocal")
+    def test_get_daily_usage(self, mock_session_cls):
+        mock_db = MagicMock()
+        mock_db.execute.return_value.fetchone.return_value = (42,)
+        mock_session_cls.return_value = mock_db
+
+        p = _make_processor("user_usage")
+        assert p._get_daily_usage() == 42
+
+    @patch("agent.email_processor.SessionLocal")
+    def test_get_daily_limit_trial(self, mock_session_cls):
+        mock_db = MagicMock()
+        mock_db.execute.return_value.fetchone.return_value = ("trial",)
+        mock_session_cls.return_value = mock_db
+
+        p = _make_processor("user_trial")
+        assert p._get_daily_limit() == 100
+
+    @patch("agent.email_processor.SessionLocal")
+    def test_get_daily_limit_tier2(self, mock_session_cls):
+        mock_db = MagicMock()
+        mock_db.execute.return_value.fetchone.return_value = ("tier2",)
+        mock_session_cls.return_value = mock_db
+
+        p = _make_processor("user_tier2")
+        assert p._get_daily_limit() == 2000
+
+
 class TestProcessInbox:
     def test_no_gmail_connection(self):
         p = _make_processor("user_no_gmail")
@@ -314,7 +368,9 @@ class TestProcessInbox:
              patch.object(p, "_get_agent", return_value=mock_agent), \
              patch.object(p, "_execute", new_callable=AsyncMock, return_value={"status": "sent", "action": "auto_replied"}), \
              patch.object(p, "_log"), \
-             patch.object(p, "_update_status"):
+             patch.object(p, "_update_status"), \
+             patch.object(p, "_get_daily_usage", return_value=0), \
+             patch.object(p, "_get_daily_limit", return_value=500):
             result = _run(p.process_inbox())
 
         assert result["processed"] == 1
@@ -339,7 +395,9 @@ class TestProcessInbox:
         with patch.object(p, "_build_service", return_value=MagicMock()), \
              patch("agent.email_processor.standalone_read_emails", return_value=[mock_email]), \
              patch.object(p, "_get_agent", return_value=mock_agent), \
-             patch.object(p, "_update_status"):
+             patch.object(p, "_update_status"), \
+             patch.object(p, "_get_daily_usage", return_value=0), \
+             patch.object(p, "_get_daily_limit", return_value=500):
             result = _run(p.process_inbox())
 
         assert result["processed"] == 0
@@ -378,9 +436,23 @@ class TestProcessInbox:
              patch.object(p, "_get_agent", return_value=mock_agent), \
              patch.object(p, "_execute", new_callable=AsyncMock, return_value={"status": "archived", "action": "labeled_archived"}), \
              patch.object(p, "_log"), \
-             patch.object(p, "_update_status"):
+             patch.object(p, "_update_status"), \
+             patch.object(p, "_get_daily_usage", return_value=0), \
+             patch.object(p, "_get_daily_limit", return_value=500):
             result = _run(p.process_inbox())
 
         assert result["processed"] == 3
         assert result["total"] == 3
         assert len(result["results"]) == 3
+
+    def test_daily_limit_reached(self):
+        p = _make_processor("user_limited")
+
+        with patch.object(p, "_build_service", return_value=MagicMock()), \
+             patch("agent.email_processor.standalone_read_emails", return_value=[{"id": "m1"}]), \
+             patch.object(p, "_get_daily_usage", return_value=100), \
+             patch.object(p, "_get_daily_limit", return_value=100):
+            result = _run(p.process_inbox())
+
+        assert result["processed"] == 0
+        assert result.get("daily_limit_reached") is True

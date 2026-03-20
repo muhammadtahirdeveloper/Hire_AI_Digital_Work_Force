@@ -234,7 +234,7 @@ export default function AgentManagementPage() {
     escalationKeywords: "",
     escalationEmail: "",
     testMode: agentStatus?.test_mode ?? false,
-    autoSend: false,
+    autoSend: agentStatus?.tier === "tier2" || agentStatus?.tier === "tier3",
     maxEmailsPerDay: 100,
     reviewHighPriority: true,
   });
@@ -920,8 +920,18 @@ export default function AgentManagementPage() {
             />
             <Switch
               checked={config.autoSend}
-              onCheckedChange={(v) => updateConfig({ autoSend: v })}
-              label="Auto-send — Replies are sent automatically"
+              onCheckedChange={async (v) => {
+                updateConfig({ autoSend: v });
+                try {
+                  await api.patch("/api/agent/config", { auto_send: v });
+                  toast.success(v ? "Auto-send enabled — agent will send replies automatically" : "Auto-send disabled — agent will create drafts only");
+                } catch {
+                  toast.error("Failed to update auto-send setting");
+                }
+              }}
+              label={config.autoSend
+                ? "Auto-send ON — Agent will send replies automatically"
+                : "Auto-send OFF — Agent will create drafts only"}
             />
             <div>
               <label className="mb-1.5 block text-sm font-medium text-text-2">
