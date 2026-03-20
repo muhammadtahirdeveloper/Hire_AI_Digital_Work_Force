@@ -283,7 +283,7 @@ export default function ContactsPage() {
                   <Tag className="h-4 w-4 text-text-3" />
                   <span className="text-text-3">Tags:</span>
                   {selected.tags.length > 0 ? selected.tags.map((t) => (
-                    <Badge key={t} variant="secondary">{t}</Badge>
+                    <Badge key={t} variant="outline">{t}</Badge>
                   )) : <span className="text-text-4">None</span>}
                 </div>
                 {selected.notes && (
@@ -313,7 +313,7 @@ export default function ContactsPage() {
                       <p className="text-sm text-text">{e.action}</p>
                       <p className="text-xs text-text-3">{e.timestamp ? formatDate(e.timestamp) : "N/A"}</p>
                     </div>
-                    <Badge variant={e.outcome === "success" ? "default" : "destructive"}>{e.outcome}</Badge>
+                    <Badge variant={e.outcome === "success" ? "success" : "danger"}>{e.outcome}</Badge>
                   </div>
                 ))}
               </div>
