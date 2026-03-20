@@ -285,20 +285,72 @@ class HRAgent(BaseAgent):
         user_id: str,
         company_name: str,
     ) -> dict[str, Any]:
-        """Handle an interview scheduling request."""
+        """Handle an interview scheduling request.
+
+        1. Find available calendar slots
+        2. Auto-schedule the first available slot
+        3. Create calendar event with attendee
+        4. Return confirmation details
+        """
         sender_email = self._get_sender_email(email)
+        subject = email.get("subject", "")
 
+        # Step 1: Find available slots
         slots = self.interview_scheduler.find_available_slots(user_id)
-        slots_text = "\n".join(f"  - {s}" for s in slots[:5]) if slots else "  (No slots available)"
 
-        self.log_action(user_id, "find_interview_slots", f"Found {len(slots)} slots for {sender_email}")
+        if not slots:
+            self.log_action(user_id, "no_interview_slots", f"No slots for {sender_email}")
+            return {
+                "action": "reply_no_slots",
+                "category": "interview_request",
+                "available_slots": [],
+                "details": "No available interview slots found.",
+            }
 
-        return {
-            "action": "reply_with_slots",
+        # Step 2: Try to create calendar event with the first slot
+        calendar_event = None
+        scheduled_slot = slots[0]
+        try:
+            from tools.calendar_tools import build_calendar_service, create_calendar_event
+            from datetime import datetime, timedelta, timezone as tz
+
+            cal_service = build_calendar_service(user_id)
+            if cal_service:
+                slot_dt = datetime.fromisoformat(scheduled_slot)
+                if slot_dt.tzinfo is None:
+                    slot_dt = slot_dt.replace(tzinfo=tz.utc)
+                end_dt = slot_dt + timedelta(minutes=60)
+
+                job_title = self._extract_job_title(subject) or "Interview"
+                calendar_event = create_calendar_event(
+                    service=cal_service,
+                    title=f"Interview: {job_title} - {sender_email}",
+                    start_time=slot_dt,
+                    end_time=end_dt,
+                    attendees=[sender_email],
+                    description=f"Interview for {job_title} at {company_name}.\nCandidate: {sender_email}",
+                )
+                logger.info(
+                    "%s: Created calendar event for interview with %s",
+                    self.agent_name, sender_email,
+                )
+        except Exception as exc:
+            logger.warning("%s: Calendar event creation failed: %s", self.agent_name, exc)
+
+        self.log_action(user_id, "schedule_interview", f"Scheduled interview with {sender_email} at {scheduled_slot}")
+
+        result = {
+            "action": "interview_scheduled",
             "category": "interview_request",
             "available_slots": slots[:5],
-            "details": f"Found {len(slots)} available interview slots.",
+            "scheduled_slot": scheduled_slot,
+            "details": f"Interview scheduled with {sender_email} at {scheduled_slot}.",
         }
+        if calendar_event:
+            result["calendar_event_id"] = calendar_event.event_id
+            result["calendar_link"] = calendar_event.html_link
+
+        return result
 
     def _handle_candidate_followup(
         self,

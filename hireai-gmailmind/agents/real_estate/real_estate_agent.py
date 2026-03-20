@@ -290,7 +290,13 @@ For maintenance requests, acknowledge urgency and set clear timelines."""
         sender_email: str,
         user_config: dict
     ) -> dict:
-        """Handle viewing request emails."""
+        """Handle viewing request emails.
+
+        1. Log the inquiry
+        2. Find available calendar slots
+        3. Create a 30-minute viewing event
+        4. Return confirmation with calendar link
+        """
         property_address = "Property [Address from context]"
 
         # Log inquiry
@@ -298,23 +304,70 @@ For maintenance requests, acknowledge urgency and set clear timelines."""
             user_id, sender_email, property_address, "viewing"
         )
 
+        # Try to schedule a viewing via calendar
+        calendar_event = None
+        scheduled_slot = None
+        try:
+            from tools.calendar_tools import build_calendar_service, get_available_slots, create_calendar_event
+            from datetime import datetime, timedelta, timezone as tz
+
+            cal_service = build_calendar_service(user_id)
+            if cal_service:
+                now = datetime.now(tz.utc)
+                slots = get_available_slots(
+                    service=cal_service,
+                    date_range_start=now,
+                    date_range_end=now + timedelta(days=7),
+                    duration_minutes=30,
+                )
+
+                if slots:
+                    scheduled_slot = slots[0]["start"]
+                    slot_dt = datetime.fromisoformat(scheduled_slot)
+                    if slot_dt.tzinfo is None:
+                        slot_dt = slot_dt.replace(tzinfo=tz.utc)
+                    end_dt = slot_dt + timedelta(minutes=30)
+
+                    calendar_event = create_calendar_event(
+                        service=cal_service,
+                        title=f"Property Viewing: {property_address}",
+                        start_time=slot_dt,
+                        end_time=end_dt,
+                        attendees=[sender_email],
+                        description=f"Property viewing at {property_address}.\nClient: {sender_email}",
+                    )
+                    logger.info(
+                        "[RealEstateAgent] Created viewing event for %s at %s",
+                        sender_email, scheduled_slot,
+                    )
+        except Exception as exc:
+            logger.warning("[RealEstateAgent] Calendar booking failed: %s", exc)
+
         # Log action
         self.log_action(
             user_id,
-            "viewing_request_received",
+            "viewing_scheduled" if calendar_event else "viewing_request_received",
             {
                 "inquiry_id": inquiry_id,
                 "client_email": sender_email,
+                "scheduled_slot": scheduled_slot,
             },
             outcome="success"
         )
 
-        return {
-            "action": "viewing_request_logged",
+        result = {
+            "action": "viewing_scheduled" if calendar_event else "viewing_request_logged",
             "inquiry_id": inquiry_id,
             "suggested_reply": "viewing_confirmation template",
-            "note": "Schedule viewing with calendar tool",
         }
+        if calendar_event:
+            result["scheduled_slot"] = scheduled_slot
+            result["calendar_event_id"] = calendar_event.event_id
+            result["calendar_link"] = calendar_event.html_link
+        else:
+            result["note"] = "Calendar not available — schedule viewing manually"
+
+        return result
 
     def _handle_rental_application(
         self,

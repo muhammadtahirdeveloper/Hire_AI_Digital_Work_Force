@@ -45,6 +45,7 @@ import {
   useEscalatedEmails,
 } from "@/hooks/use-dashboard";
 import { HealthIndicator } from "@/components/dashboard/health-indicator";
+import { CalendarWidget } from "@/components/dashboard/calendar-widget";
 import toast from "react-hot-toast";
 import { useState } from "react";
 
@@ -813,7 +814,10 @@ export default function DashboardOverviewPage() {
         </Card>
       </div>
 
-      {/* 10. UPGRADE PROMPT (tier1 only) */}
+      {/* 10. CALENDAR WIDGET */}
+      <CalendarWidget />
+
+      {/* 11. UPGRADE PROMPT (tier1 only) */}
       {user?.tier === "tier1" && (
         <Card className="border-navy/20 bg-gradient-to-r from-navy/5 to-transparent">
           <CardBody className="p-6">

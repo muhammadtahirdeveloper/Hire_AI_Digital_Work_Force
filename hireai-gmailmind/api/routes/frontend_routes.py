@@ -1568,3 +1568,55 @@ async def disconnect_database(user: dict = Depends(get_current_user)):
 async def dismiss_email(email_id: str, user: dict = Depends(get_current_user)):
     """Dismiss an escalated email."""
     return _ok({"message": "Email dismissed"})
+
+
+# ============================================================================
+# CALENDAR ENDPOINTS
+# ============================================================================
+
+
+@router.get("/calendar/events")
+async def get_calendar_events(
+    user: dict = Depends(get_current_user),
+    days: int = Query(7, ge=1, le=30),
+):
+    """Get upcoming calendar events for the user."""
+    user_id = user.get("sub", "")
+    try:
+        from tools.calendar_tools import build_calendar_service, list_upcoming_events
+
+        service = build_calendar_service(user_id)
+        if not service:
+            return _ok({"events": [], "calendar_connected": False})
+
+        events = list_upcoming_events(service, days=days)
+        return _ok({"events": events, "calendar_connected": True})
+
+    except Exception as exc:
+        logger.error("Calendar events failed: %s", exc)
+        return _ok({"events": [], "calendar_connected": False, "error": str(exc)})
+
+
+@router.get("/calendar/slots")
+async def get_calendar_slots(
+    user: dict = Depends(get_current_user),
+    days: int = Query(7, ge=1, le=14),
+    duration: int = Query(30, ge=15, le=120),
+):
+    """Get available calendar slots for scheduling."""
+    user_id = user.get("sub", "")
+    try:
+        from tools.calendar_tools import build_calendar_service, get_available_slots
+
+        service = build_calendar_service(user_id)
+        if not service:
+            return _ok({"slots": [], "calendar_connected": False})
+
+        now = datetime.now(timezone.utc)
+        end = now + timedelta(days=days)
+        slots = get_available_slots(service, now, end, duration_minutes=duration)
+        return _ok({"slots": slots, "calendar_connected": True})
+
+    except Exception as exc:
+        logger.error("Calendar slots failed: %s", exc)
+        return _ok({"slots": [], "calendar_connected": False})

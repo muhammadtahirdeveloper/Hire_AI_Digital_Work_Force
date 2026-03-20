@@ -1,9 +1,13 @@
 """Calendar tools for the GmailMind agent.
 
-Provides three calendar-related operations:
-  1. check_calendar_availability — Query Google Calendar for free slots
-  2. create_calendar_event       — Create a new event with attendees
-  3. schedule_followup            — Save a follow-up reminder to DB (Celery picks it up)
+Provides calendar-related operations:
+  1. build_calendar_service       — Build Calendar API service from user credentials
+  2. check_calendar_availability  — Query Google Calendar for free slots
+  3. get_available_slots          — Higher-level slot finder with working hours
+  4. create_calendar_event        — Create a new event with attendees
+  5. cancel_event                 — Cancel / delete a calendar event
+  6. list_upcoming_events         — List upcoming events for next N days
+  7. schedule_followup            — Save a follow-up reminder to DB (Celery picks it up)
 
 All Google Calendar calls require a pre-authenticated
 ``googleapiclient.discovery.Resource`` built from the same OAuth2 credentials
@@ -12,7 +16,7 @@ used for Gmail (with the calendar scope added).
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from googleapiclient.discovery import Resource
 from googleapiclient.errors import HttpError
@@ -28,6 +32,46 @@ from models.tool_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# 0. Build Calendar Service
+# ---------------------------------------------------------------------------
+
+
+def build_calendar_service(user_id: str) -> Optional[Resource]:
+    """Build an authenticated Google Calendar API service for a user.
+
+    Uses the same OAuth2 credentials stored for Gmail.
+
+    Args:
+        user_id: The user identifier.
+
+    Returns:
+        A Google Calendar API service resource, or None if unavailable.
+    """
+    try:
+        from memory.long_term import get_user_credentials
+        from config.credentials import refresh_credentials
+        from googleapiclient.discovery import build
+
+        creds_data = get_user_credentials(user_id)
+        if not creds_data:
+            logger.warning("build_calendar_service: No credentials for user=%s", user_id)
+            return None
+
+        credentials = refresh_credentials(creds_data, user_id=user_id)
+        if not credentials:
+            logger.warning("build_calendar_service: Could not refresh credentials for user=%s", user_id)
+            return None
+
+        service = build("calendar", "v3", credentials=credentials)
+        logger.info("build_calendar_service: Built calendar service for user=%s", user_id)
+        return service
+
+    except Exception as exc:
+        logger.error("build_calendar_service: Failed for user=%s: %s", user_id, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +252,141 @@ def create_calendar_event(
 
 
 # ---------------------------------------------------------------------------
-# 3. schedule_followup
+# 3. get_available_slots (higher-level helper)
+# ---------------------------------------------------------------------------
+
+
+def get_available_slots(
+    service: Resource,
+    date_range_start: datetime,
+    date_range_end: datetime,
+    duration_minutes: int = 30,
+    working_hours: tuple[int, int] = (9, 17),
+) -> list[dict[str, Any]]:
+    """Find available appointment slots within working hours.
+
+    Wraps check_calendar_availability and filters to working hours only.
+
+    Args:
+        service: Authenticated Google Calendar API service.
+        date_range_start: Start of the search window (UTC).
+        date_range_end: End of the search window (UTC).
+        duration_minutes: Required slot duration in minutes.
+        working_hours: Tuple of (start_hour, end_hour) in UTC.
+
+    Returns:
+        List of dicts with 'start', 'end', 'duration_minutes' keys.
+    """
+    free_slots = check_calendar_availability(
+        service, date_range_start, date_range_end, duration_minutes,
+    )
+
+    wh_start, wh_end = working_hours
+    available = []
+    for slot in free_slots:
+        # Filter to working hours
+        if slot.start.hour < wh_start or slot.start.hour >= wh_end:
+            continue
+        # Skip weekends
+        if slot.start.weekday() in (5, 6):
+            continue
+        available.append({
+            "start": slot.start.isoformat(),
+            "end": slot.end.isoformat(),
+            "duration_minutes": slot.duration_minutes,
+        })
+
+    logger.info("get_available_slots: Found %d working-hour slots.", len(available))
+    return available
+
+
+# ---------------------------------------------------------------------------
+# 4. cancel_event
+# ---------------------------------------------------------------------------
+
+
+def cancel_event(service: Resource, event_id: str) -> bool:
+    """Cancel (delete) a calendar event by its ID.
+
+    Args:
+        service: Authenticated Google Calendar API service.
+        event_id: The Google Calendar event ID to cancel.
+
+    Returns:
+        True if successfully cancelled, False otherwise.
+    """
+    try:
+        service.events().delete(
+            calendarId=GOOGLE_CALENDAR_ID,
+            eventId=event_id,
+        ).execute()
+        logger.info("cancel_event: Cancelled event_id=%s", event_id)
+        return True
+    except HttpError as exc:
+        logger.error("cancel_event failed for event_id=%s: %s", event_id, exc)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 5. list_upcoming_events
+# ---------------------------------------------------------------------------
+
+
+def list_upcoming_events(
+    service: Resource,
+    days: int = 7,
+    max_results: int = 20,
+) -> list[dict[str, Any]]:
+    """List upcoming calendar events for the next N days.
+
+    Args:
+        service: Authenticated Google Calendar API service.
+        days: Number of days ahead to search.
+        max_results: Maximum events to return.
+
+    Returns:
+        List of event dicts with id, title, start, end, attendees, link.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        time_max = now + timedelta(days=days)
+
+        result = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=now.isoformat(),
+            timeMax=time_max.isoformat(),
+            maxResults=max_results,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+
+        events = []
+        for item in result.get("items", []):
+            start = item.get("start", {})
+            end = item.get("end", {})
+            events.append({
+                "id": item.get("id", ""),
+                "title": item.get("summary", "No title"),
+                "description": item.get("description", ""),
+                "start": start.get("dateTime", start.get("date", "")),
+                "end": end.get("dateTime", end.get("date", "")),
+                "attendees": [
+                    a.get("email", "") for a in item.get("attendees", [])
+                ],
+                "link": item.get("htmlLink", ""),
+                "status": item.get("status", "confirmed"),
+            })
+
+        logger.info("list_upcoming_events: Found %d events in next %d days.", len(events), days)
+        return events
+
+    except HttpError as exc:
+        logger.error("list_upcoming_events failed: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# 6. schedule_followup
 # ---------------------------------------------------------------------------
 
 

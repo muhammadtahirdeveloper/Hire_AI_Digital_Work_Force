@@ -159,3 +159,28 @@ export function useAdminHealth() {
     shouldRetryOnError: false,
   });
 }
+
+// --- Calendar hooks ---
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description: string;
+  start: string;
+  end: string;
+  attendees: string[];
+  link: string;
+  status: string;
+}
+
+export function useCalendarEvents(days = 7) {
+  return useSWR<{ events: CalendarEvent[]; calendar_connected: boolean }>(
+    `/api/calendar/events?days=${days}`,
+    fetcher,
+    {
+      refreshInterval: 60_000,
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
+    }
+  );
+}
