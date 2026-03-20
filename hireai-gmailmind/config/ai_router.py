@@ -301,42 +301,60 @@ class AIRouter:
         api_key: str, model: str,
         max_tokens: int, temperature: float,
     ) -> dict:
-        """Call OpenAI API."""
+        """Call OpenAI API with rate-limit retry (max 3 attempts)."""
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return {
-            "content": response.choices[0].message.content,
-            "provider": "openai",
-            "model": model,
-        }
+        for attempt in range(3):
+            try:
+                client = OpenAI(api_key=api_key)
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                return {
+                    "content": response.choices[0].message.content,
+                    "provider": "openai",
+                    "model": model,
+                }
+            except Exception as exc:
+                if "rate_limit" in str(exc).lower() and attempt < 2:
+                    wait = 2 ** attempt
+                    logger.warning("OpenAI rate limited, retry in %ds (attempt %d/3)", wait, attempt + 1)
+                    time.sleep(wait)
+                    continue
+                raise
 
     async def _call_claude(
         self, system_prompt: str, user_message: str,
         api_key: str, model: str,
         max_tokens: int, temperature: float,
     ) -> dict:
-        """Call Anthropic Claude API."""
+        """Call Anthropic Claude API with rate-limit retry (max 3 attempts)."""
         from anthropic import Anthropic
 
-        client = Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-        )
-        return {
-            "content": response.content[0].text,
-            "provider": "claude",
-            "model": model,
-        }
+        for attempt in range(3):
+            try:
+                client = Anthropic(api_key=api_key)
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_message}],
+                )
+                return {
+                    "content": response.content[0].text,
+                    "provider": "claude",
+                    "model": model,
+                }
+            except Exception as exc:
+                if "rate_limit" in str(exc).lower() and attempt < 2:
+                    wait = 2 ** attempt
+                    logger.warning("Claude rate limited, retry in %ds (attempt %d/3)", wait, attempt + 1)
+                    time.sleep(wait)
+                    continue
+                raise

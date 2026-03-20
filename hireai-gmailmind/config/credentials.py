@@ -83,20 +83,58 @@ def build_credentials(
     return creds
 
 
-def refresh_credentials(credentials: Credentials) -> Credentials:
+def refresh_credentials(
+    credentials: Credentials,
+    user_id: Optional[str] = None,
+) -> Credentials:
     """Refresh expired OAuth2 credentials.
 
     Args:
         credentials: The expired Credentials object with a valid refresh_token.
+        user_id: Optional user ID for updating gmail_connected on failure.
 
     Returns:
         The refreshed Credentials object.
 
     Raises:
-        google.auth.exceptions.RefreshError: If the refresh token is invalid.
+        google.auth.exceptions.RefreshError: If the refresh token is invalid
+            and cannot be recovered.
     """
     if credentials.expired and credentials.refresh_token:
         logger.info("Access token expired, refreshing...")
-        credentials.refresh(Request())
-        logger.info("Access token refreshed successfully.")
+        try:
+            credentials.refresh(Request())
+            logger.info("Access token refreshed successfully.")
+        except Exception as exc:
+            logger.error("Token refresh failed for user=%s: %s", user_id, exc)
+            # Mark gmail as disconnected in DB
+            if user_id:
+                _mark_gmail_disconnected(user_id, str(exc))
+            raise
     return credentials
+
+
+def _mark_gmail_disconnected(user_id: str, error_msg: str) -> None:
+    """Mark user's Gmail as disconnected when token refresh fails."""
+    try:
+        from config.database import SessionLocal
+        from sqlalchemy import text
+
+        db = SessionLocal()
+        try:
+            db.execute(
+                text("""
+                    UPDATE user_agents
+                    SET gmail_valid = false,
+                        last_error = :err,
+                        updated_at = NOW()
+                    WHERE user_id = :uid
+                """),
+                {"uid": user_id, "err": f"Gmail token refresh failed: {error_msg}"},
+            )
+            db.commit()
+            logger.warning("Marked Gmail as disconnected for user=%s", user_id)
+        finally:
+            db.close()
+    except Exception as db_exc:
+        logger.error("Could not mark Gmail disconnected for user=%s: %s", user_id, db_exc)

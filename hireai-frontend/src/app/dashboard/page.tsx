@@ -243,16 +243,31 @@ export default function DashboardOverviewPage() {
         </div>
       )}
 
-      {/* API key / Gmail invalid warning */}
-      {agentStatus && !agentStatus.gmail_valid && (
+      {/* Gmail disconnected warning */}
+      {agentStatus && !agentStatus.gmail_connected && (
         <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm">
           <div className="flex items-center justify-between">
             <span className="font-medium text-danger">
               <AlertTriangle className="mr-1.5 inline h-4 w-4" />
-              Your API key or Gmail connection is invalid. Update to resume agent operations.
+              Gmail not connected. Connect your Gmail account to start processing emails.
             </span>
-            <Link href="/dashboard/settings">
-              <Button size="sm" variant="danger">Update Settings</Button>
+            <Link href="/dashboard/agent">
+              <Button size="sm" variant="danger">Connect Gmail</Button>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Agent error / paused due to failures */}
+      {agentStatus?.last_error && agentStatus.is_paused && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-warning">
+              <AlertTriangle className="mr-1.5 inline h-4 w-4" />
+              Agent paused due to errors. Check your settings and resume.
+            </span>
+            <Link href="/dashboard/agent">
+              <Button size="sm">View & Resume</Button>
             </Link>
           </div>
         </div>

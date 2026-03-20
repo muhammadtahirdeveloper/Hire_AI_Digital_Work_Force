@@ -162,7 +162,7 @@ def run_gmailmind_all_users(self) -> dict[str, Any]:
 # ============================================================================
 
 
-@app.task(bind=True, name="scheduler.tasks.run_gmailmind_for_user", max_retries=1)
+@app.task(bind=True, name="scheduler.tasks.run_gmailmind_for_user", max_retries=3)
 def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
     """Run one iteration of the GmailMind reasoning loop for a user.
 
@@ -374,6 +374,7 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
         duration = time.monotonic() - start
         error_msg = f"{type(exc).__name__}: {exc}"
         tb = traceback.format_exc()
+        retry_num = self.request.retries
 
         try:
             _set_agent_status(user_id, "error", error_msg=error_msg)
@@ -384,10 +385,45 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
             "========== [run_gmailmind_for_user] TASK FAILED ==========\n"
             "  user_id  : %s\n"
             "  duration : %.1fs\n"
+            "  attempt  : %d/3\n"
             "  error    : %s\n"
             "  traceback:\n%s",
-            user_id, duration, error_msg, tb,
+            user_id, duration, retry_num + 1, error_msg, tb,
         )
+
+        # Retry with exponential backoff: 60s, 180s, 300s
+        if retry_num < self.max_retries:
+            backoff = 60 * (retry_num + 1)
+            logger.info(
+                "[run_gmailmind_for_user] Retrying user=%s in %ds (attempt %d/%d)",
+                user_id, backoff, retry_num + 1, self.max_retries,
+            )
+            raise self.retry(exc=exc, countdown=backoff)
+
+        # After max retries: pause agent and log failure
+        logger.error(
+            "[run_gmailmind_for_user] All %d retries exhausted for user=%s — pausing agent.",
+            self.max_retries, user_id,
+        )
+        try:
+            db = SessionLocal()
+            try:
+                db.execute(
+                    text("""
+                        UPDATE user_agents
+                        SET is_paused = true,
+                            last_error = :err,
+                            updated_at = NOW()
+                        WHERE user_id = :uid
+                    """),
+                    {"uid": user_id, "err": f"Agent paused after {self.max_retries} failures: {error_msg}"},
+                )
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+        _set_agent_status(user_id, "error", error_msg=f"Paused after {self.max_retries} failures: {error_msg}")
 
         return {
             "status": "error",
@@ -396,6 +432,8 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
             "duration_s": round(duration, 2),
             "error": error_msg,
             "traceback": tb,
+            "retries_exhausted": True,
+            "agent_paused": True,
         }
 
 

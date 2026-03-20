@@ -129,11 +129,49 @@ async def ensure_action_logs_schema():
 
 @app.get("/health", tags=["System"])
 async def health_check():
-    """Simple health check — returns OK if the API is running."""
-    return {"success": True, "data": {"status": "healthy"}, "error": None}
+    """Health check — tests API, database, and AI provider connectivity."""
+    from datetime import datetime, timezone
+    checks = {"api": "healthy"}
+
+    # Database check
+    try:
+        from config.database import SessionLocal
+        from sqlalchemy import text
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+            checks["database"] = "healthy"
+        finally:
+            db.close()
+    except Exception as exc:
+        checks["database"] = f"error: {exc}"
+
+    # AI provider check (quick — just verify key exists)
+    import os
+    checks["groq_key"] = "configured" if os.environ.get("GROQ_API_KEY") else "missing"
+    checks["claude_key"] = "configured" if os.environ.get("ANTHROPIC_API_KEY") else "missing"
+
+    overall = "healthy" if checks["database"] == "healthy" else "degraded"
+    return {
+        "success": True,
+        "data": {
+            "status": overall,
+            "checks": checks,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        "error": None,
+    }
 
 
 @app.get("/api/health/platform", tags=["System"])
 async def platform_health():
     """Public platform health check — no auth required."""
-    return {"success": True, "data": {"status": "operational", "uptime": 99.9}, "error": None}
+    from datetime import datetime, timezone
+    return {
+        "success": True,
+        "data": {
+            "status": "operational",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        "error": None,
+    }
