@@ -590,6 +590,27 @@ export default function DashboardOverviewPage() {
                     </span>
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-text-3">Last Processed</span>
+                    <span className="flex items-center gap-1 text-text-2">
+                      {agentStatus.last_processed ? (
+                        <>
+                          <span
+                            className={cn(
+                              "inline-block h-1.5 w-1.5 rounded-full",
+                              (() => {
+                                const diff = Date.now() - new Date(agentStatus.last_processed).getTime();
+                                return diff < 600000 ? "bg-success" : diff < 1800000 ? "bg-warning" : "bg-danger";
+                              })()
+                            )}
+                          />
+                          {formatRelativeTime(agentStatus.last_processed)}
+                        </>
+                      ) : (
+                        "Never"
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-text-3">Uptime</span>
                     <span className="text-text-2">
                       {stats?.agent_uptime_hours ?? 0}h

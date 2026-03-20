@@ -75,3 +75,13 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost
 
 # --- Scheduler ---
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
+
+# --- Gmail Push Notifications (Pub/Sub) ---
+GOOGLE_PUBSUB_TOPIC = os.getenv(
+    "GOOGLE_PUBSUB_TOPIC",
+    "projects/hireai-prod/topics/hireai-gmail-notifications",
+)
+GMAIL_WEBHOOK_URL = os.getenv(
+    "GMAIL_WEBHOOK_URL",
+    "https://hireaidigitalworkforce-production.up.railway.app/webhooks/gmail",
+)

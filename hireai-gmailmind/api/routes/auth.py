@@ -710,7 +710,7 @@ async def google_auth_callback(
                 db.execute(
                     text("""
                         UPDATE user_agents
-                        SET gmail_token_valid = true, updated_at = NOW()
+                        SET gmail_token_valid = true, gmail_valid = true, updated_at = NOW()
                         WHERE user_id = :uid
                     """),
                     {"uid": user_id},
@@ -720,6 +720,12 @@ async def google_auth_callback(
                 db.close()
         except Exception:
             pass
+
+        # Set up Gmail push notifications (watch)
+        try:
+            _setup_gmail_watch(user_id, credentials)
+        except Exception as watch_exc:
+            logger.warning("Gmail watch setup failed (non-fatal): %s", watch_exc)
 
     # If setup wizard flow, return HTML that posts message to parent window
     if is_setup:
@@ -744,6 +750,58 @@ async def google_auth_callback(
         "user_id": user_id,
         "scopes": token_data["scopes"],
     })
+
+
+def _setup_gmail_watch(user_id: str, credentials) -> None:
+    """Set up Gmail push notifications for a user via Pub/Sub watch.
+
+    Calls Gmail ``users.watch()`` to subscribe the user's mailbox to
+    our Pub/Sub topic. Gmail will then POST to our webhook when new
+    emails arrive.
+    """
+    from config.settings import GOOGLE_PUBSUB_TOPIC
+    from googleapiclient.discovery import build
+
+    service = build("gmail", "v1", credentials=credentials)
+
+    watch_response = service.users().watch(
+        userId="me",
+        body={
+            "topicName": GOOGLE_PUBSUB_TOPIC,
+            "labelIds": ["INBOX"],
+        },
+    ).execute()
+
+    expiration = watch_response.get("expiration", "")
+    history_id = watch_response.get("historyId", "")
+
+    logger.info(
+        "Gmail watch set up for user=%s (expiration=%s, historyId=%s)",
+        user_id, expiration, history_id,
+    )
+
+    # Save watch expiration to user_agents
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(
+                text("""
+                    UPDATE user_agents
+                    SET config = jsonb_set(
+                        COALESCE(config, '{}'),
+                        '{gmail_watch_expiration}',
+                        to_jsonb(:exp::text)
+                    ),
+                    updated_at = NOW()
+                    WHERE user_id = :uid
+                """),
+                {"uid": user_id, "exp": expiration},
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Could not save watch expiration: %s", exc)
 
 
 # ============================================================================

@@ -23,6 +23,7 @@ from api.routes.real_estate_routes import router as real_estate_router
 from api.routes.ecommerce_routes import router as ecommerce_router
 from api.routes.dashboard_routes import router as dashboard_router
 from api.routes.frontend_routes import router as frontend_router
+from api.routes.gmail_webhook import router as gmail_webhook_router
 from config.settings import APP_ENV, DEBUG
 from security.headers import SecurityHeadersMiddleware
 from security.middleware import verify_api_key
@@ -92,6 +93,9 @@ app.include_router(ecommerce_router)  # Prefix /ecommerce defined in router
 # Frontend integration routes
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(frontend_router, prefix="/api", tags=["Frontend"])
+
+# Gmail push notification webhook (no auth — verified by Google Pub/Sub)
+app.include_router(gmail_webhook_router, tags=["Webhooks"])
 
 
 # ============================================================================

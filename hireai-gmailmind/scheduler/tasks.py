@@ -349,6 +349,20 @@ def run_gmailmind_for_user(self, user_id: str) -> dict[str, Any]:
         # --- Step 6: Finalize ---
         duration = time.monotonic() - start
         _set_agent_status(user_id, "idle")
+
+        # Update last_processed_at in user_agents
+        try:
+            db = SessionLocal()
+            try:
+                db.execute(
+                    text("UPDATE user_agents SET last_processed_at = NOW() WHERE user_id = :uid"),
+                    {"uid": user_id},
+                )
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
         logger.info(
             "========== [run_gmailmind_for_user] TASK COMPLETED ==========\n"
             "  user_id         : %s\n"
@@ -1029,6 +1043,150 @@ def send_ecommerce_weekly_report(self, user_id: str = "default") -> dict[str, An
         return {
             "status": "error",
             "user_id": user_id,
+            "duration_s": round(duration, 2),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+# ============================================================================
+# Task 8 — Renew Gmail Push Notification Watches
+# ============================================================================
+
+
+@app.task(bind=True, name="scheduler.tasks.renew_gmail_watches")
+def renew_gmail_watches(self) -> dict[str, Any]:
+    """Renew Gmail Pub/Sub watches for all active users.
+
+    Gmail watches expire after ~7 days. This task runs daily and
+    renews watches for any user whose watch will expire within 24 hours,
+    or for users that don't have a watch_expiration set yet.
+
+    Returns:
+        A dict with ``status``, ``renewed`` count, and ``duration_s``.
+    """
+    start = time.monotonic()
+    logger.info("[renew_gmail_watches] START")
+
+    try:
+        db = SessionLocal()
+        try:
+            # Get all active users with Gmail connected
+            rows = db.execute(
+                text("""
+                    SELECT user_id, gmail_email, config
+                    FROM user_agents
+                    WHERE is_paused = false
+                      AND gmail_email IS NOT NULL
+                      AND gmail_email != ''
+                """)
+            ).fetchall()
+        finally:
+            db.close()
+
+        if not rows:
+            duration = time.monotonic() - start
+            logger.info("[renew_gmail_watches] No active Gmail users found. duration=%.1fs", duration)
+            return {"status": "success", "renewed": 0, "duration_s": round(duration, 2)}
+
+        renewed = 0
+        errors = 0
+        now = datetime.now(timezone.utc)
+        threshold = now + timedelta(hours=24)
+
+        for row in rows:
+            user_id = row[0]
+            config = row[2] or {}
+
+            # Check if watch needs renewal
+            watch_exp_str = config.get("watch_expiration") if isinstance(config, dict) else None
+            needs_renewal = True
+
+            if watch_exp_str:
+                try:
+                    watch_exp = datetime.fromisoformat(watch_exp_str.replace("Z", "+00:00"))
+                    if watch_exp > threshold:
+                        needs_renewal = False
+                except (ValueError, AttributeError):
+                    pass  # Invalid date — renew
+
+            if not needs_renewal:
+                continue
+
+            # Renew the watch
+            try:
+                from memory.long_term import get_user_credentials
+                from config.credentials import refresh_credentials
+                from config.settings import GOOGLE_PUBSUB_TOPIC
+
+                creds_data = get_user_credentials(user_id)
+                if not creds_data:
+                    logger.warning("[renew_gmail_watches] No credentials for user=%s", user_id)
+                    continue
+
+                credentials = refresh_credentials(creds_data, user_id=user_id)
+                if not credentials:
+                    logger.warning("[renew_gmail_watches] Could not refresh credentials for user=%s", user_id)
+                    continue
+
+                from googleapiclient.discovery import build
+
+                gmail_svc = build("gmail", "v1", credentials=credentials)
+                watch_response = gmail_svc.users().watch(
+                    userId="me",
+                    body={
+                        "topicName": GOOGLE_PUBSUB_TOPIC,
+                        "labelIds": ["INBOX"],
+                    },
+                ).execute()
+
+                # Save new expiration
+                expiration_ms = int(watch_response.get("expiration", 0))
+                if expiration_ms:
+                    exp_dt = datetime.fromtimestamp(expiration_ms / 1000, tz=timezone.utc)
+                    db2 = SessionLocal()
+                    try:
+                        db2.execute(
+                            text("""
+                                UPDATE user_agents
+                                SET config = COALESCE(config, '{}'::jsonb)
+                                    || jsonb_build_object('watch_expiration', :exp)
+                                WHERE user_id = :uid
+                            """),
+                            {"exp": exp_dt.isoformat(), "uid": user_id},
+                        )
+                        db2.commit()
+                    finally:
+                        db2.close()
+
+                renewed += 1
+                logger.info("[renew_gmail_watches] Renewed watch for user=%s", user_id)
+
+            except Exception as exc:
+                errors += 1
+                logger.error("[renew_gmail_watches] Failed for user=%s: %s", user_id, exc)
+
+        duration = time.monotonic() - start
+        logger.info(
+            "[renew_gmail_watches] DONE renewed=%d errors=%d duration=%.1fs",
+            renewed, errors, duration,
+        )
+
+        return {
+            "status": "success",
+            "renewed": renewed,
+            "errors": errors,
+            "total_users": len(rows),
+            "duration_s": round(duration, 2),
+        }
+
+    except Exception as exc:
+        duration = time.monotonic() - start
+        logger.exception(
+            "[renew_gmail_watches] ERROR after %.1fs: %s", duration, exc,
+        )
+
+        return {
+            "status": "error",
             "duration_s": round(duration, 2),
             "error": f"{type(exc).__name__}: {exc}",
         }

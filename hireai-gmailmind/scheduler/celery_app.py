@@ -105,7 +105,26 @@ app.conf.beat_schedule = {
         "args": ("default",),
         "options": {"queue": "reports"},
     },
+
+    # --- Renew Gmail watches: daily at 03:00 UTC ---
+    "renew-gmail-watches": {
+        "task": "scheduler.tasks.renew_gmail_watches",
+        "schedule": crontab(hour=3, minute=0),
+        "options": {"queue": "agent"},
+    },
 }
 
-# Default queue for tasks that don't specify one.
+# Queue routing: realtime (high priority) > agent > followups > reports
 app.conf.task_default_queue = "default"
+app.conf.task_routes = {
+    "scheduler.tasks.run_gmailmind_for_user": {"queue": "agent"},
+    "scheduler.tasks.run_gmailmind_all_users": {"queue": "agent"},
+    "scheduler.tasks.process_due_followups": {"queue": "followups"},
+    "scheduler.tasks.send_daily_report": {"queue": "reports"},
+    "scheduler.tasks.send_hr_weekly_report": {"queue": "reports"},
+    "scheduler.tasks.send_real_estate_weekly_report": {"queue": "reports"},
+    "scheduler.tasks.send_ecommerce_weekly_report": {"queue": "reports"},
+    "scheduler.tasks.renew_gmail_watches": {"queue": "agent"},
+}
+# Worker consumes queues in priority order:
+# celery -A scheduler.celery_app worker -Q realtime,agent,default,followups,reports
