@@ -238,13 +238,13 @@ export default function PipelinePage() {
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-5">
+        <div className="flex gap-4 overflow-x-auto pb-4 lg:grid lg:grid-cols-5 lg:overflow-visible">
           {STAGES.map((stage) => {
             const deals = pipeline[stage] ?? [];
             const stageValue = deals.reduce((s, d) => s + (d.value || 0), 0);
 
             return (
-              <div key={stage} className="space-y-3">
+              <div key={stage} className="min-w-[260px] space-y-3 lg:min-w-0">
                 {/* Column Header */}
                 <div className="flex items-center justify-between rounded-lg bg-background-2 px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -300,7 +300,7 @@ export default function PipelinePage() {
                           {stageIndex(stage) > 0 ? (
                             <button
                               onClick={() => moveDeal(deal.id, STAGES[stageIndex(stage) - 1])}
-                              className="flex items-center gap-1 text-xs text-text-3 hover:text-text transition-colors"
+                              className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-text-3 hover:text-text hover:bg-background-2 transition-colors active:bg-background-2"
                               title={`Move to ${STAGE_LABELS[STAGES[stageIndex(stage) - 1]]}`}
                             >
                               <ArrowLeft className="h-3 w-3" />
@@ -312,7 +312,7 @@ export default function PipelinePage() {
                           {stageIndex(stage) < STAGES.length - 1 ? (
                             <button
                               onClick={() => moveDeal(deal.id, STAGES[stageIndex(stage) + 1])}
-                              className="flex items-center gap-1 text-xs text-text-3 hover:text-text transition-colors"
+                              className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-text-3 hover:text-text hover:bg-background-2 transition-colors active:bg-background-2"
                               title={`Move to ${STAGE_LABELS[STAGES[stageIndex(stage) + 1]]}`}
                             >
                               {STAGE_LABELS[STAGES[stageIndex(stage) + 1]]}

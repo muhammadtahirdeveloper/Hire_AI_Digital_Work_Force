@@ -3,15 +3,23 @@ import { Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "react-hot-toast";
 import { SessionProvider } from "@/components/shared/session-provider";
+import { PWAProvider } from "@/components/shared/pwa-provider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-geist-sans" });
 
 export const metadata: Metadata = {
+  manifest: "/manifest.json",
+  themeColor: "#2563eb",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "HireAI",
+  },
   icons: {
     icon: "/logo.svg",
     shortcut: "/logo.svg",
-    apple: "/logo.svg",
+    apple: "/icon-192.png",
   },
   title: {
     default: "HireAI — Intelligent Email Agents",
@@ -55,8 +63,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body className={`${inter.variable} font-sans`}>
         <SessionProvider>
+          <PWAProvider>
           <ThemeProvider
             attribute="class"
             defaultTheme="light"
@@ -73,6 +88,7 @@ export default function RootLayout({
               }}
             />
           </ThemeProvider>
+          </PWAProvider>
         </SessionProvider>
       </body>
     </html>

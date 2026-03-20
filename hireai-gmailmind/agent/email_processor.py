@@ -505,6 +505,17 @@ class EmailProcessor:
             return {"status": "drafted", "action": "draft_created"}
 
         elif action == "ESCALATE":
+            # Send push notification for escalated emails
+            try:
+                from api.routes.notifications import send_push_to_user
+                send_push_to_user(
+                    self.user_id,
+                    "Urgent Email Escalated",
+                    f"From {sender_email}: {subject[:80]}",
+                    "/dashboard/emails",
+                )
+            except Exception:
+                pass
             return {"status": "escalated", "action": "escalated"}
 
         elif action == "LABEL_ARCHIVE":
@@ -710,6 +721,18 @@ class EmailProcessor:
                 )
                 db.commit()
                 self.logger.info("Auto-created deal from %s email: %s", category, title)
+
+                # Push notification for new lead
+                try:
+                    from api.routes.notifications import send_push_to_user
+                    send_push_to_user(
+                        self.user_id,
+                        "New Lead Detected!",
+                        f"New lead from {sender_name or sender_email}",
+                        "/dashboard/pipeline",
+                    )
+                except Exception:
+                    pass
             finally:
                 db.close()
         except Exception as exc:

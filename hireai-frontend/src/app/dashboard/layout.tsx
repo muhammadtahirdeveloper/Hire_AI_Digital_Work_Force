@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/dashboard/sidebar";
 import { SetupWizard } from "@/components/dashboard/setup-wizard";
 import { PageLoader } from "@/components/shared/page-loader";
 import { Chatbot } from "@/components/shared/chatbot";
+import { PushPrompt } from "@/components/shared/push-prompt";
 import { setAuthToken, getAuthToken } from "@/lib/api";
 
 function TrialExpiredModal() {
@@ -143,6 +144,7 @@ export default function DashboardLayout({
         </div>
       </footer>
       <Chatbot />
+      <PushPrompt />
     </div>
   );
 }
