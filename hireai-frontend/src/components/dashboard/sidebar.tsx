@@ -17,11 +17,13 @@ import {
   Shield,
   Users,
   Kanban,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { ReviewModal } from "@/components/shared/review-modal";
 import { useLocale, LOCALES } from "@/lib/i18n";
+import { useTenant } from "@/lib/tenant";
 
 const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, labelKey: "nav.overview" },
@@ -44,15 +46,20 @@ export function Sidebar() {
   const pathname = usePathname();
   const isAdmin = session?.user?.email === ADMIN_EMAIL;
   const { t, locale, setLocale, localeInfo } = useLocale();
+  const { brandName, tenant, isWhiteLabel } = useTenant();
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 border-b border-border px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-navy text-white font-bold text-sm">
-          H
-        </div>
-        <span className="text-lg font-bold text-text">HireAI</span>
+        {isWhiteLabel && tenant.logo_url ? (
+          <img src={tenant.logo_url} alt={brandName} className="h-8 w-8 rounded-lg object-contain" />
+        ) : (
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-navy text-white font-bold text-sm">
+            {brandName[0]}
+          </div>
+        )}
+        <span className="text-lg font-bold text-text">{brandName}</span>
       </div>
 
       {/* Navigation */}
@@ -95,6 +102,24 @@ export function Sidebar() {
             >
               <Shield className="h-4 w-4" />
               {t("nav.admin")}
+            </Link>
+          </>
+        )}
+        {isWhiteLabel && (
+          <>
+            <div className="mx-3 my-2 border-t border-border" />
+            <Link
+              href="/dashboard/tenant"
+              onClick={() => setMobileOpen(false)}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                pathname.startsWith("/dashboard/tenant")
+                  ? "bg-navy text-white"
+                  : "text-text-3 hover:bg-background-2 hover:text-text"
+              )}
+            >
+              <Building2 className="h-4 w-4" />
+              Organization
             </Link>
           </>
         )}

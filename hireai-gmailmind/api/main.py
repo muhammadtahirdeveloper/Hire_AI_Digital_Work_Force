@@ -25,6 +25,7 @@ from api.routes.dashboard_routes import router as dashboard_router
 from api.routes.frontend_routes import router as frontend_router
 from api.routes.gmail_webhook import router as gmail_webhook_router
 from api.routes.notifications import router as notifications_router
+from api.routes.tenant_routes import router as tenant_router
 from config.settings import APP_ENV, DEBUG
 from security.headers import SecurityHeadersMiddleware
 from security.middleware import verify_api_key
@@ -68,6 +69,7 @@ app.add_middleware(
         "https://hireai-frontend-*.vercel.app",
         "http://localhost:3000",
         "http://localhost:3001",
+        "https://*.hireai.app",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
@@ -97,6 +99,9 @@ app.include_router(frontend_router, prefix="/api", tags=["Frontend"])
 
 # Web push notifications
 app.include_router(notifications_router, tags=["Notifications"])
+
+# White-label tenant management
+app.include_router(tenant_router, tags=["Tenants"])
 
 # Gmail push notification webhook (no auth — verified by Google Pub/Sub)
 app.include_router(gmail_webhook_router, tags=["Webhooks"])
@@ -225,6 +230,71 @@ async def ensure_deals_table():
             db.close()
     except Exception as exc:
         logger.warning("deals migration skipped (non-fatal): %s", exc)
+
+
+@app.on_event("startup")
+async def ensure_tenants_table():
+    """Create tenants table and add tenant_id column to users for white-label support."""
+    try:
+        from config.database import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS tenants (
+                    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    name VARCHAR(255) NOT NULL,
+                    slug VARCHAR(100) UNIQUE NOT NULL,
+                    domain VARCHAR(255),
+                    logo_url TEXT,
+                    primary_color VARCHAR(7) DEFAULT '#2563eb',
+                    secondary_color VARCHAR(7) DEFAULT '#1e40af',
+                    brand_name VARCHAR(255),
+                    support_email VARCHAR(255),
+                    plan VARCHAR(50) DEFAULT 'agency_starter',
+                    max_users INTEGER DEFAULT 10,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            # Add tenant_id column to users table
+            try:
+                db.execute(text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(36)"
+                ))
+            except Exception:
+                pass
+            # Add role column to users table (for tenant_admin role)
+            try:
+                db.execute(text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user'"
+                ))
+            except Exception:
+                pass
+            # Index for fast tenant lookups
+            try:
+                db.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id)"
+                ))
+            except Exception:
+                pass
+            try:
+                db.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug)"
+                ))
+            except Exception:
+                pass
+            try:
+                db.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_tenants_domain ON tenants(domain)"
+                ))
+            except Exception:
+                pass
+            db.commit()
+            logger.info("tenants table + users.tenant_id migration complete")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("tenants migration skipped (non-fatal): %s", exc)
 
 
 # ============================================================================
