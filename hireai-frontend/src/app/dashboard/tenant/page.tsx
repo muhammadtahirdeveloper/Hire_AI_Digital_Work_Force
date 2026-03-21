@@ -9,6 +9,8 @@ import {
   Building2,
   UserPlus,
   Palette,
+  Download,
+  FileText,
 } from "lucide-react";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
@@ -55,6 +57,7 @@ export default function TenantAdminPage() {
   const { brandName, tenant } = useTenant();
   const { data: usersRes, mutate: mutateUsers } = useSWR("/api/tenant/users", fetcher);
   const { data: statsRes } = useSWR("/api/tenant/stats", fetcher);
+  const { data: invoicesRes } = useSWR("/api/agency/invoices", fetcher);
 
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -424,6 +427,72 @@ export default function TenantAdminPage() {
           <Button loading={savingBrand} onClick={handleSaveBranding}>
             Save Branding
           </Button>
+        </CardBody>
+      </Card>
+
+      {/* Billing & Invoices */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-navy" />
+              <h2 className="text-base font-semibold text-text">Billing & Invoices</h2>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<Download className="h-3.5 w-3.5" />}
+              onClick={() => {
+                window.open(
+                  `${process.env.NEXT_PUBLIC_API_URL || ""}/api/tenant/export`,
+                  "_blank"
+                );
+              }}
+            >
+              Export Report
+            </Button>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-text-3">
+                  <th className="py-3 pr-4 font-medium">Invoice</th>
+                  <th className="py-3 pr-4 font-medium">Period</th>
+                  <th className="py-3 pr-4 font-medium">Plan</th>
+                  <th className="py-3 pr-4 font-medium">Amount</th>
+                  <th className="py-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(invoicesRes?.data || invoicesRes || []).length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-text-4">
+                      No invoices yet
+                    </td>
+                  </tr>
+                ) : (
+                  (invoicesRes?.data || invoicesRes || []).slice(0, 6).map((inv: { id: string; period: string; plan: string; amount: string; status: string }) => (
+                    <tr key={inv.id} className="border-b border-border last:border-0">
+                      <td className="py-3 pr-4 font-mono text-xs text-text-2">{inv.id}</td>
+                      <td className="py-3 pr-4 text-text-2">{inv.period}</td>
+                      <td className="py-3 pr-4 text-text-2">{inv.plan}</td>
+                      <td className="py-3 pr-4 font-medium text-text">{inv.amount}</td>
+                      <td className="py-3">
+                        <Badge
+                          variant={inv.status === "Paid" ? "success" : "default"}
+                          size="sm"
+                        >
+                          {inv.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardBody>
       </Card>
     </div>

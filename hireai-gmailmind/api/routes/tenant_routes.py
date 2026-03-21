@@ -9,11 +9,17 @@ Provides:
   - GET  /api/tenants           — Super admin: list all tenants
   - POST /api/tenants           — Super admin: create new tenant
   - PATCH /api/tenants/:id      — Super admin: update tenant
+  - GET  /api/agency/plans      — Public: agency pricing tiers
+  - POST /api/agency/signup     — Public: agency onboarding
+  - GET  /api/agency/invoices   — Tenant admin: billing invoices
+  - POST /api/tenant/users/:id/limits — Tenant admin: set user limits
+  - GET  /api/tenant/export     — Tenant admin: export usage report
 """
 
 import logging
 import uuid
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -27,6 +33,58 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SUPER_ADMIN_EMAIL = "hireaidigitalemployee@gmail.com"
+
+# Agency pricing tiers
+AGENCY_PLANS = {
+    "agency_starter": {
+        "name": "Agency Starter",
+        "price": 99,
+        "annual_price": 79,
+        "max_users": 10,
+        "features": [
+            "Up to 10 users",
+            "White-label branding",
+            "Custom logo & colors",
+            "Subdomain (name.hireai.app)",
+            "User management dashboard",
+            "Usage analytics",
+            "Email support",
+        ],
+        "profit_example": "Sell at $19/user = $190/mo revenue, $91/mo profit",
+    },
+    "agency_pro": {
+        "name": "Agency Pro",
+        "price": 249,
+        "annual_price": 199,
+        "max_users": 50,
+        "features": [
+            "Up to 50 users",
+            "Everything in Starter",
+            "Custom domain support",
+            "Advanced analytics",
+            "Priority support",
+            "Export usage reports",
+            "Per-user email limits",
+        ],
+        "profit_example": "Sell at $15/user = $750/mo revenue, $501/mo profit",
+    },
+    "agency_enterprise": {
+        "name": "Agency Enterprise",
+        "price": 499,
+        "annual_price": 399,
+        "max_users": 9999,
+        "features": [
+            "Unlimited users",
+            "Everything in Pro",
+            "Dedicated support",
+            "Custom agent training",
+            "SLA guarantee",
+            "API access",
+            "White-glove onboarding",
+        ],
+        "profit_example": "Sell at $10/user x 100 = $1000/mo revenue, $501/mo profit",
+    },
+}
 
 
 def _ok(data: Any = None) -> dict:
@@ -574,4 +632,314 @@ async def update_tenant(
         raise
     except Exception as exc:
         logger.error("update_tenant error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# AGENCY PRICING & ONBOARDING
+# ============================================================================
+
+
+@router.get("/api/agency/plans")
+async def get_agency_plans():
+    """Public: get agency pricing tiers."""
+    plans = []
+    for plan_id, plan in AGENCY_PLANS.items():
+        plans.append({
+            "id": plan_id,
+            **plan,
+        })
+    return _ok(plans)
+
+
+class AgencySignupRequest(BaseModel):
+    company_name: str
+    contact_name: str
+    email: str
+    phone: str = ""
+    slug: str
+    plan: str = "agency_starter"
+
+
+@router.post("/api/agency/signup")
+async def agency_signup(body: AgencySignupRequest):
+    """Public: agency onboarding — creates tenant + admin user with 14-day trial."""
+    # Validate slug
+    if not re.match(r"^[a-z0-9][a-z0-9-]{2,30}[a-z0-9]$", body.slug):
+        raise HTTPException(
+            status_code=400,
+            detail="Slug must be 4-32 lowercase letters, numbers, or hyphens",
+        )
+
+    plan_info = AGENCY_PLANS.get(body.plan)
+    if not plan_info:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+
+    try:
+        db = SessionLocal()
+        try:
+            # Check slug uniqueness
+            existing = db.execute(
+                text("SELECT id FROM tenants WHERE slug = :slug"),
+                {"slug": body.slug},
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=400, detail="Subdomain already taken")
+
+            # Check email uniqueness for tenant admin
+            existing_user = db.execute(
+                text("SELECT id, tenant_id FROM users WHERE email = :email"),
+                {"email": body.email},
+            ).fetchone()
+
+            tenant_id = str(uuid.uuid4())
+            trial_end = datetime.now(timezone.utc) + timedelta(days=14)
+
+            # Create tenant
+            db.execute(
+                text("""
+                    INSERT INTO tenants (id, name, slug, brand_name, support_email,
+                                        plan, max_users, is_active, created_at)
+                    VALUES (:id, :name, :slug, :bn, :se, :plan, :mu, true, NOW())
+                """),
+                {
+                    "id": tenant_id,
+                    "name": body.company_name,
+                    "slug": body.slug,
+                    "bn": body.company_name,
+                    "se": body.email,
+                    "plan": body.plan,
+                    "mu": plan_info["max_users"],
+                },
+            )
+
+            # Create or update admin user
+            if existing_user:
+                if existing_user[1]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="This email already belongs to an organization",
+                    )
+                db.execute(
+                    text("""
+                        UPDATE users SET tenant_id = :tid, role = 'tenant_admin',
+                                        name = :name, tier = 'trial',
+                                        trial_end_date = :trial_end
+                        WHERE email = :email
+                    """),
+                    {
+                        "tid": tenant_id,
+                        "name": body.contact_name,
+                        "email": body.email,
+                        "trial_end": trial_end,
+                    },
+                )
+            else:
+                user_id = str(uuid.uuid4())
+                db.execute(
+                    text("""
+                        INSERT INTO users (id, email, name, tenant_id, role, tier,
+                                          trial_end_date, created_at)
+                        VALUES (:id, :email, :name, :tid, 'tenant_admin', 'trial',
+                                :trial_end, NOW())
+                    """),
+                    {
+                        "id": user_id,
+                        "email": body.email,
+                        "name": body.contact_name,
+                        "tid": tenant_id,
+                        "trial_end": trial_end,
+                    },
+                )
+
+            db.commit()
+
+            return _ok({
+                "tenant_id": tenant_id,
+                "slug": body.slug,
+                "subdomain": f"{body.slug}.hireai.app",
+                "trial_ends": trial_end.isoformat(),
+                "plan": body.plan,
+                "message": f"Welcome! Your agency portal is ready at {body.slug}.hireai.app. 14-day free trial started.",
+            })
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("agency_signup error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# AGENCY USER MANAGEMENT — Enhanced
+# ============================================================================
+
+
+class SetUserLimitsRequest(BaseModel):
+    daily_email_limit: int = 100
+    permission: str = "full_access"
+
+
+@router.post("/api/tenant/users/{user_id}/limits")
+async def set_user_limits(
+    user_id: str,
+    body: SetUserLimitsRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Tenant admin: set per-user email limits and permissions."""
+    if not _is_tenant_admin(user) and not _is_super_admin(user):
+        raise HTTPException(status_code=403, detail="Tenant admin access required")
+
+    tenant_id = _get_tenant_id(user)
+    if not tenant_id:
+        raise HTTPException(status_code=404, detail="No tenant found")
+
+    try:
+        db = SessionLocal()
+        try:
+            # Ensure user belongs to this tenant
+            target = db.execute(
+                text("SELECT id FROM users WHERE id = :uid AND tenant_id = :tid"),
+                {"uid": user_id, "tid": tenant_id},
+            ).fetchone()
+            if not target:
+                raise HTTPException(status_code=404, detail="User not found in your organization")
+
+            # Store limits in user_configs
+            import json
+            db.execute(
+                text("""
+                    INSERT INTO user_configs (user_id, config_key, config_value)
+                    VALUES (:uid, 'agency_limits', :val)
+                    ON CONFLICT (user_id, config_key) DO UPDATE SET config_value = :val
+                """),
+                {
+                    "uid": user_id,
+                    "val": json.dumps({
+                        "daily_email_limit": body.daily_email_limit,
+                        "permission": body.permission,
+                    }),
+                },
+            )
+            db.commit()
+            return _ok({"message": "User limits updated"})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("set_user_limits error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# AGENCY BILLING — Invoices & Reports
+# ============================================================================
+
+
+@router.get("/api/agency/invoices")
+async def get_agency_invoices(user: dict = Depends(get_current_user)):
+    """Tenant admin: get billing invoices."""
+    if not _is_tenant_admin(user) and not _is_super_admin(user):
+        raise HTTPException(status_code=403, detail="Tenant admin access required")
+
+    tenant_id = _get_tenant_id(user)
+    if not tenant_id:
+        raise HTTPException(status_code=404, detail="No tenant found")
+
+    try:
+        db = SessionLocal()
+        try:
+            tenant = db.execute(
+                text("SELECT name, plan, max_users, created_at FROM tenants WHERE id = :tid"),
+                {"tid": tenant_id},
+            ).fetchone()
+
+            if not tenant:
+                return _ok([])
+
+            plan = tenant[1] or "agency_starter"
+            plan_info = AGENCY_PLANS.get(plan, AGENCY_PLANS["agency_starter"])
+            created = tenant[3]
+
+            # Generate invoice history from tenant creation to now
+            invoices = []
+            current = datetime.now(timezone.utc)
+            month_cursor = created.replace(day=1) if created else current.replace(day=1)
+            inv_num = 1
+
+            while month_cursor <= current:
+                invoices.append({
+                    "id": f"INV-{tenant_id[:6].upper()}-{inv_num:03d}",
+                    "date": month_cursor.strftime("%Y-%m-%d"),
+                    "period": month_cursor.strftime("%B %Y"),
+                    "plan": plan_info["name"],
+                    "amount": f"${plan_info['price']:.2f}",
+                    "status": "Paid" if month_cursor.month < current.month or month_cursor.year < current.year else "Current",
+                })
+                inv_num += 1
+                # Move to next month
+                if month_cursor.month == 12:
+                    month_cursor = month_cursor.replace(year=month_cursor.year + 1, month=1)
+                else:
+                    month_cursor = month_cursor.replace(month=month_cursor.month + 1)
+
+            return _ok(invoices[::-1])  # Most recent first
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("get_agency_invoices error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/api/tenant/export")
+async def export_usage_report(user: dict = Depends(get_current_user)):
+    """Tenant admin: export CSV usage report."""
+    if not _is_tenant_admin(user) and not _is_super_admin(user):
+        raise HTTPException(status_code=403, detail="Tenant admin access required")
+
+    tenant_id = _get_tenant_id(user)
+    if not tenant_id:
+        raise HTTPException(status_code=404, detail="No tenant found")
+
+    try:
+        db = SessionLocal()
+        try:
+            rows = db.execute(
+                text("""
+                    SELECT u.email, u.name,
+                           COALESCE((SELECT COUNT(*) FROM action_logs WHERE user_id = u.id::text AND timestamp > date_trunc('month', NOW())), 0) as emails_month,
+                           COALESCE((SELECT COUNT(*) FROM action_logs WHERE user_id = u.id::text AND action_taken = 'auto_replied' AND timestamp > date_trunc('month', NOW())), 0) as auto_replied,
+                           COALESCE((SELECT COUNT(*) FROM action_logs WHERE user_id = u.id::text AND action_taken = 'escalated' AND timestamp > date_trunc('month', NOW())), 0) as escalated
+                    FROM users u WHERE u.tenant_id = :tid
+                    ORDER BY emails_month DESC
+                """),
+                {"tid": tenant_id},
+            ).fetchall()
+
+            # Build CSV content
+            lines = ["Email,Name,Emails This Month,Auto Replied,Escalated"]
+            total_emails = 0
+            for r in rows:
+                cols = r._mapping
+                lines.append(
+                    f"{cols['email']},{cols.get('name', '')},{cols.get('emails_month', 0)},"
+                    f"{cols.get('auto_replied', 0)},{cols.get('escalated', 0)}"
+                )
+                total_emails += cols.get("emails_month", 0)
+            lines.append(f"\nTotal,,{total_emails},,")
+
+            from fastapi.responses import PlainTextResponse
+            return PlainTextResponse(
+                content="\n".join(lines),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f"attachment; filename=usage-report-{datetime.now().strftime('%Y-%m')}.csv"
+                },
+            )
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("export_usage_report error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
