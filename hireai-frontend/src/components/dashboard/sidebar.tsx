@@ -21,16 +21,17 @@ import {
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { ReviewModal } from "@/components/shared/review-modal";
+import { useLocale, LOCALES } from "@/lib/i18n";
 
 const navItems = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Overview" },
-  { href: "/dashboard/agent", icon: Bot, label: "Agent" },
-  { href: "/dashboard/emails", icon: Mail, label: "Emails" },
-  { href: "/dashboard/contacts", icon: Users, label: "Contacts" },
-  { href: "/dashboard/pipeline", icon: Kanban, label: "Pipeline" },
-  { href: "/dashboard/analytics", icon: BarChart3, label: "Analytics" },
-  { href: "/dashboard/settings", icon: Settings, label: "Settings" },
-  { href: "/dashboard/billing", icon: CreditCard, label: "Billing" },
+  { href: "/dashboard", icon: LayoutDashboard, labelKey: "nav.overview" },
+  { href: "/dashboard/agent", icon: Bot, labelKey: "nav.agent" },
+  { href: "/dashboard/emails", icon: Mail, labelKey: "nav.emails" },
+  { href: "/dashboard/contacts", icon: Users, labelKey: "nav.contacts" },
+  { href: "/dashboard/pipeline", icon: Kanban, labelKey: "nav.pipeline" },
+  { href: "/dashboard/analytics", icon: BarChart3, labelKey: "nav.analytics" },
+  { href: "/dashboard/settings", icon: Settings, labelKey: "nav.settings" },
+  { href: "/dashboard/billing", icon: CreditCard, labelKey: "nav.billing" },
 ];
 
 const ADMIN_EMAIL = "hireaidigitalemployee@gmail.com";
@@ -38,9 +39,11 @@ const ADMIN_EMAIL = "hireaidigitalemployee@gmail.com";
 export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
   const { data: session } = useSession();
   const pathname = usePathname();
   const isAdmin = session?.user?.email === ADMIN_EMAIL;
+  const { t, locale, setLocale, localeInfo } = useLocale();
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
@@ -73,7 +76,7 @@ export function Sidebar() {
               )}
             >
               <item.icon className="h-4 w-4" />
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}
@@ -91,7 +94,7 @@ export function Sidebar() {
               )}
             >
               <Shield className="h-4 w-4" />
-              Admin
+              {t("nav.admin")}
             </Link>
           </>
         )}
@@ -104,7 +107,7 @@ export function Sidebar() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
           </span>
-          <span className="text-xs font-medium text-text-2">Agent Live</span>
+          <span className="text-xs font-medium text-text-2">{t("dashboard.agent_live")}</span>
         </div>
       </div>
 
@@ -117,6 +120,43 @@ export function Sidebar() {
           <Star className="h-4 w-4" />
           Rate HireAI
         </button>
+      </div>
+
+      {/* Language Switcher */}
+      <div className="relative border-t border-border px-4 py-3">
+        <button
+          onClick={() => setLangOpen(!langOpen)}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-text-3 transition-colors hover:bg-background-2 hover:text-text"
+        >
+          <span className="text-sm">{localeInfo.nativeName}</span>
+          <span className="flex-1 text-left rtl:text-right text-text-4">{localeInfo.name}</span>
+          <svg className={cn("h-3 w-3 transition-transform", langOpen && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+        </button>
+        {langOpen && (
+          <div className="absolute bottom-full left-4 right-4 mb-1 rounded-lg border border-border bg-background shadow-lg z-50">
+            {LOCALES.map((l) => (
+              <button
+                key={l.code}
+                onClick={() => {
+                  setLocale(l.code);
+                  setLangOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors first:rounded-t-lg last:rounded-b-lg",
+                  locale === l.code
+                    ? "bg-navy/10 font-medium text-navy"
+                    : "text-text-3 hover:bg-background-2 hover:text-text"
+                )}
+              >
+                <span className="text-sm">{l.nativeName}</span>
+                <span className="flex-1 text-left rtl:text-right">{l.name}</span>
+                {locale === l.code && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-navy" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Theme Toggle */}

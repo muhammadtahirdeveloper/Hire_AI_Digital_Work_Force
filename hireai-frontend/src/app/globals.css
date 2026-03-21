@@ -83,3 +83,51 @@
     text-wrap: balance;
   }
 }
+
+/* RTL Support */
+[dir="rtl"] {
+  text-align: right;
+}
+
+[dir="rtl"] .space-x-1 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-2 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-3 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-4 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 1;
+}
+
+/* RTL sidebar positioning */
+[dir="rtl"] .lg\:pl-64 {
+  padding-left: 0;
+  padding-right: 16rem;
+}
+
+[dir="rtl"] .fixed.left-4 {
+  left: auto;
+  right: 1rem;
+}
+
+[dir="rtl"] .fixed.inset-y-0.left-0 {
+  left: auto;
+  right: 0;
+}
+
+[dir="rtl"] .-translate-x-full {
+  --tw-translate-x: 100%;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y));
+}
+
+[dir="rtl"] .translate-x-0 {
+  --tw-translate-x: 0;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y));
+}
+
+[dir="rtl"] .border-r {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+[dir="rtl"] .lg\:border-r {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}

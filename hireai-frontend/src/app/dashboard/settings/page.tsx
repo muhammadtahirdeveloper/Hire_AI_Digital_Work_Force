@@ -41,6 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useAgentStatus } from "@/hooks/use-dashboard";
+import { useLocale, LOCALES, type Locale } from "@/lib/i18n";
 import toast from "react-hot-toast";
 
 // --- Constants ---
@@ -58,20 +59,21 @@ const timezones = [
   { value: "Asia/Tokyo", label: "Tokyo (JST, UTC+9)" },
 ];
 
-const languages = ["English", "Urdu", "Arabic", "Spanish", "French", "German", "Chinese"];
+const uiLanguages = LOCALES.map((l) => ({ code: l.code, label: `${l.name} (${l.nativeName})` }));
 
 // --- Page ---
 
 export default function SettingsPage() {
   const { data: session } = useSession();
   const { data: agentStatus } = useAgentStatus();
+  const { locale, setLocale, t } = useLocale();
   const user = session?.user;
 
   // Profile state
   const [fullName, setFullName] = useState(user?.name || "");
   const [displayName, setDisplayName] = useState(user?.name?.split(" ")[0] || "");
   const [timezone, setTimezone] = useState("Asia/Karachi");
-  const [language, setLanguage] = useState("English");
+  const [language, setLanguage] = useState(locale as string);
   const [profileSaving, setProfileSaving] = useState(false);
 
   // Notifications state
@@ -156,7 +158,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 pt-4 lg:pt-0">
       <div>
-        <h1 className="text-2xl font-bold text-text">Settings</h1>
+        <h1 className="text-2xl font-bold text-text">{t("settings.title")}</h1>
         <p className="mt-1 text-sm text-text-3">
           Manage your account, notifications, and integrations
         </p>
@@ -243,15 +245,18 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="block text-sm font-medium text-text-2">
-                    Language
+                    {t("settings.language")}
                   </label>
-                  <Select value={language} onValueChange={setLanguage}>
+                  <Select value={language} onValueChange={(v) => {
+                    setLanguage(v);
+                    setLocale(v as Locale);
+                  }}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {languages.map((l) => (
-                        <SelectItem key={l} value={l}>{l}</SelectItem>
+                      {uiLanguages.map((l) => (
+                        <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

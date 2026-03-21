@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "react-hot-toast";
 import { SessionProvider } from "@/components/shared/session-provider";
 import { PWAProvider } from "@/components/shared/pwa-provider";
+import { LocaleProvider } from "@/lib/i18n";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-geist-sans" });
@@ -71,6 +72,7 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} font-sans`}>
         <SessionProvider>
+          <LocaleProvider>
           <PWAProvider>
           <ThemeProvider
             attribute="class"
@@ -89,6 +91,7 @@ export default function RootLayout({
             />
           </ThemeProvider>
           </PWAProvider>
+          </LocaleProvider>
         </SessionProvider>
       </body>
     </html>
