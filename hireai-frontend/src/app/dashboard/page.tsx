@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import Link from "next/link";
 import {
   Pause,
@@ -90,7 +90,7 @@ const categoryColors: Record<string, string> = {
 // --- Page ---
 
 export default function DashboardOverviewPage() {
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: recentEmails, isLoading: emailsLoading } = useRecentEmails();
   const { data: agentStatus, isLoading: agentLoading, mutate: mutateAgent } = useAgentStatus();

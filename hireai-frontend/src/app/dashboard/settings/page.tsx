@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import {
   User,
   Bell,
@@ -64,7 +64,7 @@ const uiLanguages = LOCALES.map((l) => ({ code: l.code, label: `${l.name} (${l.n
 // --- Page ---
 
 export default function SettingsPage() {
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const { data: agentStatus } = useAgentStatus();
   const { locale, setLocale, t } = useLocale();
   const user = session?.user;

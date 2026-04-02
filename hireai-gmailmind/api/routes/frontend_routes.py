@@ -1442,11 +1442,31 @@ async def get_my_reviews(user: dict = Depends(get_current_user)):
 
 @router.get("/billing/plan")
 async def get_billing_plan(user: dict = Depends(get_current_user)):
-    """Get current billing plan."""
+    """Get current billing plan (checks subscriptions table first, falls back to user_agents)."""
     user_id = user.get("sub", "")
     try:
         db = SessionLocal()
         try:
+            # Check subscriptions table first (Lemon Squeezy)
+            sub_row = db.execute(
+                text("""
+                    SELECT plan_name, tier, status, current_period_end, cancel_at_period_end
+                    FROM subscriptions
+                    WHERE user_id = :uid AND status IN ('active', 'on_trial')
+                    ORDER BY created_at DESC LIMIT 1
+                """),
+                {"uid": user_id},
+            ).fetchone()
+            if sub_row:
+                return _ok({
+                    "tier": sub_row[1] or "tier1",
+                    "plan_name": sub_row[0],
+                    "status": sub_row[2],
+                    "period_end": sub_row[3].isoformat() if sub_row[3] else None,
+                    "cancel_at_period_end": sub_row[4],
+                })
+
+            # Fallback to user_agents
             row = db.execute(
                 text("SELECT tier, model FROM user_agents WHERE user_id = :uid LIMIT 1"),
                 {"uid": user_id},
@@ -1462,7 +1482,37 @@ async def get_billing_plan(user: dict = Depends(get_current_user)):
 
 @router.get("/billing/history")
 async def get_billing_history(user: dict = Depends(get_current_user)):
-    """Get billing history."""
+    """Get billing history from subscriptions table."""
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            rows = db.execute(
+                text("""
+                    SELECT plan_name, tier, status, current_period_start,
+                           current_period_end, created_at
+                    FROM subscriptions
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """),
+                {"uid": user_id},
+            ).fetchall()
+            return _ok([
+                {
+                    "plan_name": r[0],
+                    "tier": r[1],
+                    "status": r[2],
+                    "period_start": r[3].isoformat() if r[3] else None,
+                    "period_end": r[4].isoformat() if r[4] else None,
+                    "created_at": r[5].isoformat() if r[5] else None,
+                }
+                for r in rows
+            ])
+        finally:
+            db.close()
+    except Exception:
+        pass
     return _ok([])
 
 
@@ -1507,8 +1557,39 @@ async def change_plan(
 
 
 @router.post("/billing/cancel")
-async def cancel_subscription(user: dict = Depends(get_current_user)):
-    """Cancel subscription."""
+async def cancel_subscription_legacy(user: dict = Depends(get_current_user)):
+    """Cancel subscription (legacy — prefer /api/billing/cancel on lemonsqueezy router)."""
+    # Redirect to the real cancellation handler
+    from config.lemonsqueezy import cancel_subscription as ls_cancel
+    user_id = user.get("sub", "")
+    try:
+        db = SessionLocal()
+        try:
+            row = db.execute(
+                text("""
+                    SELECT ls_subscription_id FROM subscriptions
+                    WHERE user_id = :uid AND status = 'active'
+                    ORDER BY created_at DESC LIMIT 1
+                """),
+                {"uid": user_id},
+            ).fetchone()
+            if row and row[0]:
+                cancelled = await ls_cancel(row[0])
+                if cancelled:
+                    db.execute(
+                        text("""
+                            UPDATE subscriptions
+                            SET status = 'cancelled', cancel_at_period_end = true, updated_at = NOW()
+                            WHERE ls_subscription_id = :sid
+                        """),
+                        {"sid": row[0]},
+                    )
+                    db.commit()
+                    return _ok({"message": "Subscription cancelled. Access continues until period end."})
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("Cancel subscription failed: %s", exc)
     return _ok({"message": "Subscription cancelled. Agent active until period end."})
 
 

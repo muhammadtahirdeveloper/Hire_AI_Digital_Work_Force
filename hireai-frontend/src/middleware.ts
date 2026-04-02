@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { updateSession } from "@/lib/supabase/middleware";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  const { user, supabaseResponse } = await updateSession(request);
 
-  const isAuthenticated = !!token;
+  const isAuthenticated = !!user;
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/verify-email") || pathname.startsWith("/forgot-password") || pathname.startsWith("/reset-password");
   const isDashboard = pathname.startsWith("/dashboard");
 
@@ -25,7 +22,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  return supabaseResponse;
 }
 
 export const config = {

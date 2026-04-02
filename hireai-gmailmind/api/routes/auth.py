@@ -125,6 +125,13 @@ class GoogleLoginRequest(BaseModel):
     google_id: str = ""
 
 
+class SupabaseSyncRequest(BaseModel):
+    email: str
+    name: str = ""
+    image: str = ""
+    supabase_id: str = ""
+
+
 class ForgotPasswordRequest(BaseModel):
     email: str
 
@@ -500,6 +507,89 @@ async def google_login(body: GoogleLoginRequest):
     except Exception as exc:
         logger.error("Google login failed: %s", exc)
         return _ok({"user_id": "google-user", "token": "", "access_token": ""})
+
+
+# ============================================================================
+# POST /auth/supabase-sync — Sync Supabase user to local DB
+# ============================================================================
+
+
+@router.post("/supabase-sync")
+async def supabase_sync(body: SupabaseSyncRequest):
+    """Create or update a local user record from Supabase Auth sign-in.
+
+    Called by the frontend after a Supabase login to ensure the user
+    exists in our local database and to obtain a backend JWT.
+    """
+    if not body.email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    try:
+        db = SessionLocal()
+        try:
+            _ensure_users_table(db)
+
+            row = db.execute(
+                text("SELECT id, name, image FROM users WHERE email = :email"),
+                {"email": body.email.lower()},
+            ).fetchone()
+
+            if row:
+                # Update existing user
+                db.execute(
+                    text("""
+                        UPDATE users SET name = COALESCE(NULLIF(:name, ''), name),
+                                         image = COALESCE(NULLIF(:image, ''), image)
+                        WHERE email = :email
+                    """),
+                    {"name": body.name, "image": body.image, "email": body.email.lower()},
+                )
+                db.commit()
+                user_id = row[0]
+            else:
+                # Create new user
+                user_id = str(uuid.uuid4())
+                trial_end = datetime.now(timezone.utc) + timedelta(days=7)
+                db.execute(
+                    text("""
+                        INSERT INTO users (id, email, name, image, provider, tier,
+                                           trial_end_date, setup_complete, is_active, email_verified)
+                        VALUES (:id, :email, :name, :image, 'supabase', 'trial',
+                                :trial_end, false, true, true)
+                    """),
+                    {
+                        "id": user_id,
+                        "email": body.email.lower(),
+                        "name": body.name or body.email.split("@")[0],
+                        "image": body.image,
+                        "trial_end": trial_end,
+                    },
+                )
+                db.commit()
+                logger.info("New Supabase user created: %s", body.email)
+
+            # Ensure user_agents record exists
+            _ensure_user_agents_table(db)
+            db.execute(
+                text("""
+                    INSERT INTO user_agents
+                        (user_id, agent_type, ai_provider, gmail_email, model, is_paused, config)
+                    VALUES (:uid, 'general', 'groq', :email, 'groq', false, '{}')
+                    ON CONFLICT (user_id) DO NOTHING
+                """),
+                {"uid": user_id, "email": body.email.lower()},
+            )
+            db.commit()
+
+            token = _create_jwt(user_id, body.email.lower(), body.name or "")
+            return _ok({"user_id": user_id, "token": token, "access_token": token})
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Supabase sync failed: %s", exc)
+        return _ok({"user_id": "", "token": "", "access_token": ""})
 
 
 # ============================================================================

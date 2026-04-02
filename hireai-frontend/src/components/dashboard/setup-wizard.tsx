@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Globe,
   Users,
@@ -105,7 +105,7 @@ const aiModels = [
 const TOTAL_STEPS = 7;
 
 export function SetupWizard() {
-  const { data: session, update } = useSession();
+  const { session } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [setupError, setSetupError] = useState("");
@@ -240,12 +240,7 @@ export function SetupWizard() {
     setStep(7);
     setLoading(false);
 
-    // Force NextAuth session refresh so setupComplete updates in the JWT
-    try {
-      await update();
-    } catch {
-      // Non-fatal — session will refresh on next page load
-    }
+    // Session will refresh automatically on next page load via Supabase
   };
 
   return (

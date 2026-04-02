@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { SetupWizard } from "@/components/dashboard/setup-wizard";
@@ -54,7 +54,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session, status } = useSession();
+  const { session, status } = useAuth();
   const [showTrialModal, setShowTrialModal] = useState(false);
 
   // Check trial expiry

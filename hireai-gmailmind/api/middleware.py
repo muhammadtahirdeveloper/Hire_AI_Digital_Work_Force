@@ -3,6 +3,7 @@
 Provides:
   - ``get_current_user`` — FastAPI dependency that extracts and validates
     a JWT bearer token from the ``Authorization`` header.
+    Supports both local JWTs and Supabase-issued JWTs.
   - ``require_active_subscription`` — Dependency that checks whether the
     authenticated user has an active subscription before allowing
     agent-related operations.
@@ -18,7 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 
 from config.database import SessionLocal
-from config.settings import JWT_ALGORITHM, JWT_SECRET
+from config.settings import JWT_ALGORITHM, JWT_SECRET, SUPABASE_JWT_SECRET
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,8 @@ def get_current_user(
 ) -> dict[str, Any]:
     """Decode and validate the JWT bearer token.
 
-    The token payload is expected to contain at least:
-      - ``sub``  — user ID
-      - ``exp``  — expiration timestamp
+    Tries the local JWT secret first, then falls back to verifying
+    as a Supabase-issued JWT if SUPABASE_JWT_SECRET is configured.
 
     Returns:
         The decoded token payload as a dict.
@@ -47,28 +47,53 @@ def get_current_user(
     """
     token = credentials.credentials
 
+    # Try local JWT first
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id:
+            logger.debug("Authenticated user (local JWT): %s", user_id)
+            return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired.",
         )
-    except jwt.InvalidTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {exc}",
-        )
+    except jwt.InvalidTokenError:
+        pass  # Try Supabase JWT next
 
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing 'sub' claim (user ID).",
-        )
+    # Try Supabase JWT if configured
+    if SUPABASE_JWT_SECRET:
+        try:
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
+            user_id = payload.get("sub")
+            email = payload.get("email", "")
+            if user_id:
+                # Map Supabase claims to our expected format
+                payload["sub"] = user_id
+                payload["email"] = email
+                logger.debug("Authenticated user (Supabase JWT): %s", user_id)
+                return payload
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired.",
+            )
+        except jwt.InvalidTokenError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token: {exc}",
+            )
 
-    logger.debug("Authenticated user: %s", user_id)
-    return payload
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid token.",
+    )
 
 
 # ============================================================================

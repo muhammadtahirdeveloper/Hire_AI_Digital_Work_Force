@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import { Bot, X, Send, MessageCircle, Mail, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -86,7 +86,7 @@ function TypingIndicator() {
 // --- Component ---
 
 export function Chatbot() {
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const isAuthenticated = !!session?.user;
 
   const [open, setOpen] = useState(false);

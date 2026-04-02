@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, X, ChevronDown, Mail } from "lucide-react";
+import { Check, X, ChevronDown, Mail, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { api } from "@/lib/api";
+import toast from "react-hot-toast";
 
 // --- Plan data ---
 
@@ -136,6 +139,29 @@ const faqs = [
 
 export default function PricingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const { status } = useAuth();
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const isLoggedIn = status === "authenticated";
+
+  const handleCheckout = async (planId: string) => {
+    setCheckoutLoading(planId);
+    try {
+      const res = await api.post("/api/billing/checkout", {
+        plan: planId,
+        success_url: `${window.location.origin}/dashboard/billing?success=true`,
+      });
+      const checkoutUrl = res.data?.data?.checkout_url;
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+      } else {
+        toast.error("Failed to create checkout session");
+      }
+    } catch {
+      toast.error("Failed to create checkout session");
+    } finally {
+      setCheckoutLoading(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
@@ -213,14 +239,28 @@ export default function PricingPage() {
 
               <p className="mt-2 font-mono text-xs text-text-4">{plan.model}</p>
 
-              <Link href="/signup" className="mt-6 block">
+              {isLoggedIn ? (
                 <Button
-                  className="w-full"
+                  className="mt-6 w-full"
                   variant={plan.popular ? "primary" : "outline"}
+                  onClick={() => handleCheckout(plan.id)}
+                  disabled={checkoutLoading === plan.id}
                 >
-                  Get Started
+                  {checkoutLoading === plan.id ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : null}
+                  {checkoutLoading === plan.id ? "Redirecting..." : "Subscribe Now"}
                 </Button>
-              </Link>
+              ) : (
+                <Link href="/signup" className="mt-6 block">
+                  <Button
+                    className="w-full"
+                    variant={plan.popular ? "primary" : "outline"}
+                  >
+                    Get Started
+                  </Button>
+                </Link>
+              )}
 
               <ul className="mt-6 space-y-2.5">
                 {plan.features.map((f) => (

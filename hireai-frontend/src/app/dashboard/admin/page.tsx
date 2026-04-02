@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Users,
   Mail,
@@ -97,7 +97,7 @@ const fallbackData = {
 // --- Page ---
 
 export default function AdminPage() {
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const { data: apiData, mutate } = useAdminHealth();
   const [restartUserId, setRestartUserId] = useState("");
   const [restarting, setRestarting] = useState(false);

@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createClient } from "@/lib/supabase/client";
 import { setAuthToken } from "@/lib/api";
 
 export default function LoginPage() {
@@ -18,10 +18,20 @@ export default function LoginPage() {
   const [needsVerification, setNeedsVerification] = useState(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const supabase = createClient();
 
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
     setGoogleLoading(true);
-    signIn("google", { callbackUrl: "/dashboard" });
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/api/auth/callback?next=/dashboard`,
+      },
+    });
+    if (error) {
+      setError(error.message);
+      setGoogleLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -44,17 +54,16 @@ export default function LoginPage() {
           if (jwt) setAuthToken(jwt);
         }
       } catch {
-        // Non-fatal — continue with NextAuth signIn
+        // Non-fatal — continue with Supabase signIn
       }
 
-      const res = await signIn("credentials", {
+      const { error: supabaseError } = await supabase.auth.signInWithPassword({
         email,
         password,
-        redirect: false,
       });
 
-      if (res?.error) {
-        if (res.error.includes("verify") || res.error.includes("Verify")) {
+      if (supabaseError) {
+        if (supabaseError.message.includes("Email not confirmed")) {
           setNeedsVerification(true);
           setError("Please verify your email before signing in. Check your inbox for the verification link.");
         } else {

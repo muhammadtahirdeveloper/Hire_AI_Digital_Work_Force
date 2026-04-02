@@ -1,43 +1,19 @@
-import "next-auth";
+// Legacy type definitions preserved for compatibility.
+// Auth is now handled by Supabase + useAuth() hook.
 
-declare module "next-auth" {
-  interface Session {
-    user: {
-      id: string;
-      email: string;
-      name: string;
-      image?: string;
-      tier: string;
-      agentType: string;
-      isActive: boolean;
-      setupComplete: boolean;
-      trialEndDate?: string;
-    };
-    accessToken?: string;
-  }
-
-  interface User {
-    id: string;
-    email: string;
-    name: string;
-    image?: string;
-    tier?: string;
-    agentType?: string;
-    isActive?: boolean;
-    setupComplete?: boolean;
-    backendToken?: string;
-  }
+export interface HireAIUser {
+  id: string;
+  email: string;
+  name: string;
+  image?: string;
+  tier: string;
+  agentType: string;
+  isActive: boolean;
+  setupComplete: boolean;
+  trialEndDate?: string;
 }
 
-declare module "next-auth/jwt" {
-  interface JWT {
-    id?: string;
-    tier?: string;
-    agentType?: string;
-    isActive?: boolean;
-    setupComplete?: boolean;
-    trialEndDate?: string;
-    accessToken?: string;
-    backendToken?: string;
-  }
+export interface HireAISession {
+  user: HireAIUser;
+  accessToken?: string;
 }

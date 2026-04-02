@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createClient } from "@/lib/supabase/client";
 import { setAuthToken } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -22,23 +22,39 @@ export default function SignupPage() {
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
 
-  const handleGoogleSignup = () => {
+  const supabase = createClient();
+
+  const handleGoogleSignup = async () => {
     setGoogleLoading(true);
-    signIn("google", { callbackUrl: "/dashboard" });
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/api/auth/callback?next=/dashboard`,
+      },
+    });
+    if (error) {
+      setError(error.message);
+      setGoogleLoading(false);
+    }
   };
 
   const handleResendVerification = async () => {
     setResendLoading(true);
     setResendSuccess(false);
     try {
-      const res = await fetch(`${API_URL}/auth/send-verification-email`, {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+      });
+      if (!error) {
+        setResendSuccess(true);
+      }
+      // Also resend via backend
+      await fetch(`${API_URL}/auth/send-verification-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      if (res.ok) {
-        setResendSuccess(true);
-      }
     } catch {
       // silently fail
     } finally {
@@ -80,7 +96,21 @@ export default function SignupPage() {
       const jwt = registerData.data?.token || registerData.data?.access_token || "";
       if (jwt) setAuthToken(jwt);
 
-      // Show verification screen instead of auto-login
+      // Step 2: Also create user in Supabase Auth
+      const { error: supabaseError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/api/auth/callback?next=/dashboard`,
+        },
+      });
+
+      if (supabaseError && !supabaseError.message.includes("already registered")) {
+        // Non-fatal — backend registration succeeded
+        console.warn("Supabase signup warning:", supabaseError.message);
+      }
+
+      // Show verification screen
       setShowVerification(true);
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "Failed to fetch") {

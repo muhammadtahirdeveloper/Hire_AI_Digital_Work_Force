@@ -26,6 +26,7 @@ from api.routes.frontend_routes import router as frontend_router
 from api.routes.gmail_webhook import router as gmail_webhook_router
 from api.routes.notifications import router as notifications_router
 from api.routes.tenant_routes import router as tenant_router
+from api.routes.lemonsqueezy_routes import router as lemonsqueezy_router
 from config.settings import APP_ENV, DEBUG
 from security.headers import SecurityHeadersMiddleware
 from security.middleware import verify_api_key
@@ -102,6 +103,9 @@ app.include_router(notifications_router, tags=["Notifications"])
 
 # White-label tenant management
 app.include_router(tenant_router, tags=["Tenants"])
+
+# Lemon Squeezy billing & webhook routes
+app.include_router(lemonsqueezy_router, prefix="/api", tags=["Billing"])
 
 # Gmail push notification webhook (no auth — verified by Google Pub/Sub)
 app.include_router(gmail_webhook_router, tags=["Webhooks"])
@@ -295,6 +299,62 @@ async def ensure_tenants_table():
             db.close()
     except Exception as exc:
         logger.warning("tenants migration skipped (non-fatal): %s", exc)
+
+
+@app.on_event("startup")
+async def ensure_subscriptions_table():
+    """Create subscriptions table for Lemon Squeezy billing."""
+    try:
+        from config.database import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    user_id VARCHAR(255) NOT NULL,
+                    ls_subscription_id VARCHAR(255),
+                    ls_customer_id VARCHAR(255),
+                    ls_order_id VARCHAR(255),
+                    plan_name VARCHAR(100),
+                    tier VARCHAR(20),
+                    status VARCHAR(50) DEFAULT 'active',
+                    current_period_start TIMESTAMP,
+                    current_period_end TIMESTAMP,
+                    cancel_at_period_end BOOLEAN DEFAULT false,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            for idx in [
+                "CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id)",
+                "CREATE INDEX IF NOT EXISTS idx_subscriptions_ls_sub ON subscriptions(ls_subscription_id)",
+            ]:
+                try:
+                    db.execute(text(idx))
+                except Exception:
+                    pass
+            # Also ensure user_subscriptions table exists (used by middleware)
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_subscriptions (
+                    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    user_id VARCHAR(255) NOT NULL,
+                    status VARCHAR(50) DEFAULT 'active',
+                    expires_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            try:
+                db.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_user_subs_user_id ON user_subscriptions(user_id)"
+                ))
+            except Exception:
+                pass
+            db.commit()
+            logger.info("subscriptions + user_subscriptions table migration complete")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("subscriptions migration skipped (non-fatal): %s", exc)
 
 
 # ============================================================================

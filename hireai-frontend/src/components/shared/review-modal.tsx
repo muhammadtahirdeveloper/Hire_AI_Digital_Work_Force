@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import { Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ interface ReviewModalProps {
 }
 
 export function ReviewModal({ open, onClose }: ReviewModalProps) {
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const [step, setStep] = useState(1);
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);

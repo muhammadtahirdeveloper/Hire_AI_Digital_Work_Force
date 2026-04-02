@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Globe,
   Users,
@@ -200,7 +200,7 @@ interface AgentConfig {
 // --- Page ---
 
 export default function AgentManagementPage() {
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const { data: agentStatus, mutate: mutateAgent } = useAgentStatus();
   const { data: providerHealth } = useProviderHealth();
   const [switchModalOpen, setSwitchModalOpen] = useState(false);

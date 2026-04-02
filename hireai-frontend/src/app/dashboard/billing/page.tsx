@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Check,
   CreditCard,
   Copy,
   Gift,
   FileText,
-  Download,
+  ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +34,7 @@ const plans = [
   {
     id: "tier1",
     name: "Starter",
+    lsPlan: "starter",
     price: 19,
     model: "claude-haiku-3-5",
     popular: false,
@@ -46,6 +49,7 @@ const plans = [
   {
     id: "tier2",
     name: "Professional",
+    lsPlan: "professional",
     price: 49,
     model: "claude-sonnet-4-5",
     popular: true,
@@ -61,6 +65,7 @@ const plans = [
   {
     id: "tier3",
     name: "Enterprise",
+    lsPlan: "enterprise",
     price: 99,
     model: "claude-sonnet-4-5",
     popular: false,
@@ -75,11 +80,25 @@ const plans = [
   },
 ];
 
-const billingHistory = [
-  { date: "2025-03-01", plan: "Professional", amount: "$49.00", status: "Paid", invoice: "#INV-003" },
-  { date: "2025-02-01", plan: "Professional", amount: "$49.00", status: "Paid", invoice: "#INV-002" },
-  { date: "2025-01-01", plan: "Starter", amount: "$19.00", status: "Paid", invoice: "#INV-001" },
-];
+interface BillingHistoryItem {
+  plan_name: string;
+  tier: string;
+  status: string;
+  period_start: string | null;
+  period_end: string | null;
+  created_at: string | null;
+}
+
+interface Subscription {
+  ls_subscription_id: string;
+  ls_customer_id: string;
+  plan_name: string;
+  tier: string;
+  status: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+}
 
 function getTrialDaysLeft(trialEndDate?: string): number {
   if (!trialEndDate) return 0;
@@ -90,37 +109,101 @@ function getTrialDaysLeft(trialEndDate?: string): number {
 // --- Page ---
 
 export default function BillingPage() {
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const { data: agentStatus, mutate: mutateAgent } = useAgentStatus();
+  const searchParams = useSearchParams();
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [billingHistory, setBillingHistory] = useState<BillingHistoryItem[]>([]);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
 
   const user = session?.user;
-  const currentTier = agentStatus?.tier || user?.tier || "trial";
+  const currentTier = subscription?.tier || agentStatus?.tier || user?.tier || "trial";
   const currentModel = agentStatus?.model || "claude-sonnet-4-5";
   const isTrial = currentTier === "trial";
   const trialDays = getTrialDaysLeft(user?.trialEndDate);
   const currentPlan = plans.find((p) => p.id === currentTier);
   const referralCode = user?.id ? `HIRE-${user.id.slice(0, 6).toUpperCase()}` : "HIRE-XXXXXX";
+  const hasSubscription = !!subscription && subscription.status === "active";
 
-  const handleChangePlan = async () => {
-    if (!selectedPlan) return;
-    try {
-      await api.patch("/api/agent/config", { tier: selectedPlan });
-      mutateAgent();
-      toast.success("Plan updated successfully");
-    } catch {
-      toast.error("Failed to update plan");
+  // Show success toast if redirected from checkout
+  useEffect(() => {
+    if (searchParams.get("success") === "true") {
+      toast.success("Subscription activated! Welcome aboard.");
     }
-    setPlanModalOpen(false);
-    setSelectedPlan(null);
+  }, [searchParams]);
+
+  // Fetch subscription and billing history
+  const fetchBillingData = useCallback(async () => {
+    try {
+      const [subRes, histRes] = await Promise.all([
+        api.get("/api/billing/subscription"),
+        api.get("/api/billing/history"),
+      ]);
+      if (subRes.data?.data?.subscription) {
+        setSubscription(subRes.data.data.subscription);
+      }
+      if (Array.isArray(histRes.data?.data)) {
+        setBillingHistory(histRes.data.data);
+      }
+    } catch {
+      // Billing data not available yet
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBillingData();
+  }, [fetchBillingData]);
+
+  const handleSubscribe = async (planId: string) => {
+    const plan = plans.find((p) => p.id === planId);
+    if (!plan) return;
+
+    setCheckoutLoading(planId);
+    try {
+      const res = await api.post("/api/billing/checkout", {
+        plan: plan.lsPlan,
+        success_url: `${window.location.origin}/dashboard/billing?success=true`,
+      });
+      const checkoutUrl = res.data?.data?.checkout_url;
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+      } else {
+        toast.error("Failed to create checkout session");
+      }
+    } catch {
+      toast.error("Failed to create checkout session");
+    } finally {
+      setCheckoutLoading(null);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    setPortalLoading(true);
+    try {
+      const res = await api.get("/api/billing/portal");
+      const portalUrl = res.data?.data?.portal_url;
+      if (portalUrl) {
+        window.open(portalUrl, "_blank");
+      } else {
+        toast.error("Unable to open billing portal");
+      }
+    } catch {
+      toast.error("Unable to open billing portal");
+    } finally {
+      setPortalLoading(false);
+    }
   };
 
   const handleCancel = async () => {
     try {
       await api.post("/api/billing/cancel");
       toast.success("Subscription cancelled. Agent active until period end.");
+      fetchBillingData();
+      mutateAgent();
     } catch {
       toast.error("Failed to cancel subscription");
     }
@@ -148,7 +231,7 @@ export default function BillingPage() {
             <div>
               <p className="text-xs text-text-3">Current Plan</p>
               <p className="mt-1 text-xl font-bold text-text">
-                {isTrial ? "Free Trial" : currentPlan?.name || currentTier}
+                {isTrial ? "Free Trial" : subscription?.plan_name || currentPlan?.name || currentTier}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 {!isTrial && currentPlan && (
@@ -157,22 +240,35 @@ export default function BillingPage() {
                     <span className="text-sm font-normal text-text-3">/mo</span>
                   </span>
                 )}
-                <Badge variant={isTrial ? "warning" : "success"}>
-                  {isTrial ? "Trial" : "Active"}
+                <Badge variant={isTrial ? "warning" : subscription?.cancel_at_period_end ? "danger" : "success"}>
+                  {isTrial ? "Trial" : subscription?.cancel_at_period_end ? "Cancelling" : "Active"}
                 </Badge>
               </div>
               <p className="mt-2 font-mono text-xs text-text-4">
                 {currentModel}
               </p>
-              {!isTrial && (
+              {subscription?.current_period_end && (
                 <p className="mt-1 text-xs text-text-4">
-                  Next billing date: {new Date(Date.now() + 30 * 86400000).toLocaleDateString()}
+                  {subscription.cancel_at_period_end ? "Access until" : "Next billing date"}:{" "}
+                  {new Date(subscription.current_period_end).toLocaleDateString()}
                 </p>
               )}
             </div>
-            <Button onClick={() => setPlanModalOpen(true)}>
-              Change Plan
-            </Button>
+            <div className="flex gap-2">
+              {hasSubscription && (
+                <Button variant="outline" onClick={handleManageSubscription} disabled={portalLoading}>
+                  {portalLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ExternalLink className="mr-1.5 h-4 w-4" />
+                  )}
+                  Manage Billing
+                </Button>
+              )}
+              <Button onClick={() => setPlanModalOpen(true)}>
+                {hasSubscription ? "Change Plan" : "Subscribe"}
+              </Button>
+            </div>
           </div>
         </CardBody>
       </Card>
@@ -218,7 +314,7 @@ export default function BillingPage() {
           <ModalHeader>
             <ModalTitle>Choose a Plan</ModalTitle>
             <ModalDescription>
-              Select the plan that fits your needs. Changes take effect immediately.
+              Select the plan that fits your needs. You&apos;ll be redirected to a secure checkout page.
             </ModalDescription>
           </ModalHeader>
           <div className="grid gap-4 p-6 pt-0 md:grid-cols-3">
@@ -264,10 +360,17 @@ export default function BillingPage() {
               Cancel
             </Button>
             <Button
-              onClick={handleChangePlan}
-              disabled={!selectedPlan || selectedPlan === currentTier}
+              onClick={() => selectedPlan && handleSubscribe(selectedPlan)}
+              disabled={!selectedPlan || selectedPlan === currentTier || !!checkoutLoading}
             >
-              Confirm Change
+              {checkoutLoading ? (
+                <>
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  Redirecting...
+                </>
+              ) : (
+                "Subscribe"
+              )}
             </Button>
           </ModalFooter>
         </ModalContent>
@@ -303,7 +406,7 @@ export default function BillingPage() {
         </CardBody>
       </Card>
 
-      {/* 5. PAYMENT METHOD */}
+      {/* 5. PAYMENT METHOD — Managed via Lemon Squeezy */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -312,17 +415,25 @@ export default function BillingPage() {
           </div>
         </CardHeader>
         <CardBody>
-          <div className="rounded-lg border border-border bg-background-1 p-4 text-center">
-            <p className="text-sm text-text-2">
-              Payment integration coming soon. Contact us to arrange payment.
-            </p>
-            <a
-              href="mailto:hireaidigitalemployee@gmail.com"
-              className="mt-2 inline-block text-sm font-medium text-navy hover:underline"
-            >
-              hireaidigitalemployee@gmail.com
-            </a>
-          </div>
+          {hasSubscription ? (
+            <div className="flex items-center justify-between rounded-lg border border-border bg-background-1 p-4">
+              <p className="text-sm text-text-2">
+                Manage your payment method, invoices, and billing details via the customer portal.
+              </p>
+              <Button variant="outline" size="sm" onClick={handleManageSubscription} disabled={portalLoading}>
+                {portalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Manage"}
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-background-1 p-4 text-center">
+              <p className="text-sm text-text-2">
+                Subscribe to a plan to set up your payment method.
+              </p>
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => setPlanModalOpen(true)}>
+                Choose a Plan
+              </Button>
+            </div>
+          )}
         </CardBody>
       </Card>
 
@@ -332,48 +443,57 @@ export default function BillingPage() {
           <h3 className="text-sm font-semibold text-text">Billing History</h3>
         </CardHeader>
         <CardBody className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs font-medium text-text-3">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Plan</th>
-                  <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Invoice</th>
-                </tr>
-              </thead>
-              <tbody>
-                {billingHistory.map((row) => (
-                  <tr
-                    key={row.invoice}
-                    className="border-b border-border last:border-0 hover:bg-background-1"
-                  >
-                    <td className="px-4 py-3 text-text-2">{row.date}</td>
-                    <td className="px-4 py-3 font-medium text-text">{row.plan}</td>
-                    <td className="px-4 py-3 text-text-2">{row.amount}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="success" size="sm">{row.status}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => toast("Invoice download coming soon")}
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-navy hover:underline"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        {row.invoice}
-                      </button>
-                    </td>
+          {billingHistory.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-medium text-text-3">
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Plan</th>
+                    <th className="px-4 py-3">Tier</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Period</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {billingHistory.map((row, i) => (
+                    <tr
+                      key={i}
+                      className="border-b border-border last:border-0 hover:bg-background-1"
+                    >
+                      <td className="px-4 py-3 text-text-2">
+                        {row.created_at ? new Date(row.created_at).toLocaleDateString() : "-"}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-text">{row.plan_name || "-"}</td>
+                      <td className="px-4 py-3 text-text-2">{row.tier || "-"}</td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          variant={row.status === "active" ? "success" : row.status === "cancelled" ? "danger" : "warning"}
+                          size="sm"
+                        >
+                          {row.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-text-3">
+                        {row.period_start ? new Date(row.period_start).toLocaleDateString() : "-"}
+                        {" — "}
+                        {row.period_end ? new Date(row.period_end).toLocaleDateString() : "ongoing"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-6 text-center text-sm text-text-3">
+              No billing history yet. Subscribe to a plan to get started.
+            </div>
+          )}
         </CardBody>
       </Card>
 
       {/* 7. CANCEL SUBSCRIPTION */}
-      {!isTrial && (
+      {hasSubscription && !subscription?.cancel_at_period_end && (
         <div className="text-center">
           <button
             onClick={() => setCancelModalOpen(true)}

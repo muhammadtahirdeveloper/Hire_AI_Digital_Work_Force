@@ -30,44 +30,13 @@ interface ReviewsData {
   rating_breakdown: Record<number, number>;
 }
 
-// --- Fallback data ---
+// --- Empty defaults (only real reviews from API are shown) ---
 
-const fallbackData: ReviewsData = {
-  average_rating: 4.8,
-  total_count: 47,
-  rating_breakdown: { 5: 34, 4: 9, 3: 3, 2: 1, 1: 0 },
-  reviews: [
-    {
-      id: 1, user_name: "Sarah Ahmed", user_role: "HR Manager", user_company: "TechCorp",
-      rating: 5, review_text: "HireAI completely transformed how we handle recruitment emails. What used to take 3 hours now runs on autopilot. Our response rate to candidates improved by 85%. The HR agent understands context perfectly.",
-      agent_type: "hr", tier: "tier2", is_verified: true, created_at: "2025-02-15",
-    },
-    {
-      id: 2, user_name: "Mohammad Khan", user_role: "Real Estate Director", user_company: "Premier Properties",
-      rating: 5, review_text: "Setup took 10 minutes. By next morning, 90% of property inquiries were handled automatically. Clients love the instant responses — and so do we. The real estate agent knows exactly how to handle viewings.",
-      agent_type: "real_estate", tier: "tier3", is_verified: true, created_at: "2025-02-10",
-    },
-    {
-      id: 3, user_name: "Zara Ali", user_role: "E-commerce Founder", user_company: "StyleHub",
-      rating: 5, review_text: "Response time went from 6 hours to 2 minutes. Our customer satisfaction scores jumped 40% in the first month. HireAI pays for itself many times over. Best investment we made.",
-      agent_type: "ecommerce", tier: "tier2", is_verified: true, created_at: "2025-02-05",
-    },
-    {
-      id: 4, user_name: "Ahmed Raza", user_role: "Freelancer",
-      rating: 4, review_text: "Great for handling general emails. The classification is spot on. I wish the general agent had a few more customization options, but overall very happy with it.",
-      agent_type: "general", tier: "tier1", is_verified: true, created_at: "2025-01-28",
-    },
-    {
-      id: 5, user_name: "Fatima Noor", user_role: "Recruitment Lead", user_company: "HireRight",
-      rating: 5, review_text: "We process 200+ CVs a week. HireAI categorizes them, sends acknowledgment emails, and flags the best candidates. Saved us an entire team member's worth of work.",
-      agent_type: "hr", tier: "tier3", is_verified: true, created_at: "2025-01-20",
-    },
-    {
-      id: 6, user_name: "Omar Farooq", user_role: "Property Manager", user_company: "DHA Estates",
-      rating: 4, review_text: "Very impressed with the maintenance request handling. Tenants get instant responses and I get a clean summary. The escalation to WhatsApp for urgent issues is a game changer.",
-      agent_type: "real_estate", tier: "tier2", is_verified: true, created_at: "2025-01-15",
-    },
-  ],
+const emptyData: ReviewsData = {
+  average_rating: 0,
+  total_count: 0,
+  rating_breakdown: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+  reviews: [],
 };
 
 const planFilters = ["All", "Starter", "Professional", "Enterprise"];
@@ -90,8 +59,8 @@ export default function ReviewsPage() {
     { revalidateOnFocus: false }
   );
 
-  const data = apiData || fallbackData;
-  const reviews = data?.reviews ?? fallbackData.reviews;
+  const data = apiData || emptyData;
+  const reviews = data?.reviews ?? emptyData.reviews;
 
   const filtered = reviews.filter((r) => {
     if (planFilter !== "All") {
@@ -105,7 +74,7 @@ export default function ReviewsPage() {
     return true;
   });
 
-  const ratingBreakdown = data?.rating_breakdown ?? fallbackData.rating_breakdown;
+  const ratingBreakdown = data?.rating_breakdown ?? emptyData.rating_breakdown;
   const maxBreakdown = Math.max(...Object.values(ratingBreakdown), 1);
 
   return (
@@ -125,14 +94,14 @@ export default function ReviewsPage() {
         {/* Score */}
         <Card>
           <CardBody className="flex flex-col items-center justify-center p-8">
-            <p className="text-6xl font-bold text-text">{data?.average_rating ?? fallbackData.average_rating}</p>
+            <p className="text-6xl font-bold text-text">{data?.average_rating ?? emptyData.average_rating}</p>
             <div className="mt-2 flex gap-0.5">
               {[1, 2, 3, 4, 5].map((i) => (
                 <Star
                   key={i}
                   className={cn(
                     "h-5 w-5",
-                    i <= Math.round(data?.average_rating ?? fallbackData.average_rating)
+                    i <= Math.round(data?.average_rating ?? emptyData.average_rating)
                       ? "fill-amber-400 text-amber-400"
                       : "text-border-2"
                   )}
@@ -140,7 +109,7 @@ export default function ReviewsPage() {
               ))}
             </div>
             <p className="mt-2 text-sm text-text-3">
-              Based on {(data?.total_count ?? fallbackData.total_count)} reviews
+              Based on {(data?.total_count ?? emptyData.total_count)} reviews
             </p>
           </CardBody>
         </Card>
@@ -150,7 +119,7 @@ export default function ReviewsPage() {
           <CardBody className="space-y-3 p-8">
             {[5, 4, 3, 2, 1].map((star) => {
               const count = ratingBreakdown[star] || 0;
-              const pct = (data?.total_count ?? fallbackData.total_count) > 0 ? Math.round((count / (data?.total_count ?? fallbackData.total_count)) * 100) : 0;
+              const pct = (data?.total_count ?? emptyData.total_count) > 0 ? Math.round((count / (data?.total_count ?? emptyData.total_count)) * 100) : 0;
               return (
                 <div key={star} className="flex items-center gap-3">
                   <span className="flex w-8 items-center gap-0.5 text-sm text-text-2">
@@ -298,8 +267,11 @@ export default function ReviewsPage() {
       </div>
 
       {filtered.length === 0 && (
-        <div className="mt-12 text-center text-sm text-text-4">
-          No reviews match your filters.
+        <div className="mt-12 text-center">
+          <p className="text-lg font-medium text-text-2">No reviews yet</p>
+          <p className="mt-2 text-sm text-text-4">
+            Be the first to share your experience with HireAI!
+          </p>
         </div>
       )}
     </div>

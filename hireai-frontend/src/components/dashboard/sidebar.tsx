@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import {
   LayoutDashboard,
   Bot,
@@ -42,7 +42,7 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
-  const { data: session } = useSession();
+  const { session } = useAuth();
   const pathname = usePathname();
   const isAdmin = session?.user?.email === ADMIN_EMAIL;
   const { t, locale, setLocale, localeInfo } = useLocale();
