@@ -11,7 +11,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
-    "https://hireaidigitalworkforce-production.up.railway.app/auth/google/callback",
+    "https://hireai-backend.onrender.com/auth/google/callback",
 )
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
@@ -98,5 +98,5 @@ GOOGLE_PUBSUB_TOPIC = os.getenv(
 )
 GMAIL_WEBHOOK_URL = os.getenv(
     "GMAIL_WEBHOOK_URL",
-    "https://hireaidigitalworkforce-production.up.railway.app/webhooks/gmail",
+    "https://hireai-backend.onrender.com/webhooks/gmail",
 )
