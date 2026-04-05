@@ -1,0 +1,77 @@
+services:
+  # 1. Main FastAPI Web Service
+  - type: web
+    name: hireai-backend
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: hireai-gmailmind
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: REDIS_URL
+        value: "redis://localhost:6379/0"
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "https://hireai-frontend.vercel.app,https://hireai-frontend-*.vercel.app,http://localhost:3000"
+
+  # 2. Celery Worker — Background tasks
+  - type: worker
+    name: hireai-worker
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: hireai-gmailmind
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A scheduler.celery_app worker --loglevel=info --concurrency=2 -Q default,agent,followups,reports
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+
+  # 3. Celery Beat — Scheduled cron jobs
+  - type: worker
+    name: hireai-beat
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: hireai-gmailmind
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A scheduler.celery_app beat --loglevel=info
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
