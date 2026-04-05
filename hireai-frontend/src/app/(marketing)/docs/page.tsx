@@ -369,7 +369,7 @@ export default function DocsPage() {
               <p className="mt-4 text-sm text-text-3">
                 Base URL:{" "}
                 <code className="rounded bg-background-2 px-2 py-0.5 text-xs font-mono text-text">
-                  https://hireai-backend.onrender.com
+                  https://hireai-backend-an68.onrender.com
                 </code>
               </p>
               <p className="mt-2 text-sm text-text-3">
