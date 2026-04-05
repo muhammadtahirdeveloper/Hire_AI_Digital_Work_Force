@@ -154,6 +154,16 @@ export function SetupWizard() {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === "gmail-connected") {
         setData((prev) => ({ ...prev, gmailConnected: true }));
+      } else if (event.data?.type === "gmail-error") {
+        const errCode = event.data?.error || "unknown";
+        if (errCode === "access_denied") {
+          alert(
+            "Google OAuth access denied. The app is currently in testing mode. " +
+            "Please contact the administrator to add your Google account as a test user."
+          );
+        } else {
+          alert(`Gmail connection failed: ${errCode}`);
+        }
       }
     };
     window.addEventListener("message", handler);

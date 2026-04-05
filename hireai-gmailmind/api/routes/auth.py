@@ -83,11 +83,24 @@ def _build_flow() -> Flow:
     return flow
 
 
-# In-memory store: state -> code_verifier (cleared after use)
-_pkce_store: dict[str, str] = {}
+# In-memory store: state -> (code_verifier, timestamp) — cleared after use.
+# Entries older than 10 minutes are purged on each new OAuth request.
+_pkce_store: dict[str, tuple[str, float]] = {}
 
 # In-memory store: state -> setup metadata (setup=true, email)
 _setup_store: dict[str, dict] = {}
+
+_PKCE_TTL_SECONDS = 600  # 10 minutes
+
+
+def _pkce_cleanup() -> None:
+    """Remove PKCE entries older than _PKCE_TTL_SECONDS."""
+    import time as _time
+    cutoff = _time.time() - _PKCE_TTL_SECONDS
+    expired = [k for k, (_, ts) in _pkce_store.items() if ts < cutoff]
+    for k in expired:
+        _pkce_store.pop(k, None)
+        _setup_store.pop(k, None)
 
 
 def _generate_pkce() -> tuple[str, str]:
@@ -684,8 +697,10 @@ async def google_auth_redirect(
         code_challenge_method="S256",
     )
 
-    # Store code_verifier keyed by state so the callback can retrieve it.
-    _pkce_store[state] = code_verifier
+    # Purge stale PKCE entries, then store the new one.
+    _pkce_cleanup()
+    import time as _time
+    _pkce_store[state] = (code_verifier, _time.time())
 
     # Store setup metadata if this is from the setup wizard
     if setup.lower() == "true":
@@ -702,8 +717,9 @@ async def google_auth_redirect(
 
 @router.get("/google/callback")
 async def google_auth_callback(
-    code: str = Query(..., description="Authorization code from Google"),
+    code: str = Query(None, description="Authorization code from Google"),
     state: str = Query(None),
+    error: str = Query(None, description="Error code from Google OAuth"),
 ):
     """Handle the Google OAuth2 callback.
 
@@ -711,8 +727,50 @@ async def google_auth_callback(
     the PKCE code_verifier, encrypts the token data, and saves it to
     the user_credentials table.
     """
+    # Handle Google OAuth errors (e.g. testing mode, access_denied)
+    if error:
+        _pkce_store.pop(state, None)
+        _setup_store.pop(state, None)
+        setup_meta = _setup_store.get(state)
+        is_setup = bool(setup_meta and setup_meta.get("setup"))
+        if error == "access_denied":
+            msg = (
+                "Access denied by Google. This usually means the Google Cloud "
+                "OAuth app is in 'Testing' mode and your Google account has not "
+                "been added as a test user. Please contact the administrator to "
+                "add your email as a test user in the Google Cloud Console, or "
+                "wait until the app is published."
+            )
+        else:
+            msg = f"Google OAuth error: {error}"
+        logger.warning("Google OAuth callback error: %s", error)
+        if is_setup:
+            return HTMLResponse(content=f"""
+<!DOCTYPE html>
+<html>
+<head><title>Gmail Connection Failed</title></head>
+<body>
+<p style="color:red;font-family:sans-serif;max-width:500px;">{msg}</p>
+<script>
+  if (window.opener) {{
+    window.opener.postMessage({{ type: "gmail-error", error: "{error}" }}, "*");
+  }}
+  setTimeout(function() {{ window.close(); }}, 8000);
+</script>
+</body>
+</html>
+""")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing authorization code from Google.",
+        )
+
     # Retrieve and consume the code_verifier for this state.
-    code_verifier = _pkce_store.pop(state, None)
+    _pkce_entry = _pkce_store.pop(state, None)
+    code_verifier = _pkce_entry[0] if _pkce_entry else None
     if not code_verifier:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

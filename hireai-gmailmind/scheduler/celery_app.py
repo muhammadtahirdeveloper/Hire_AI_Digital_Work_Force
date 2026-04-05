@@ -14,6 +14,8 @@ Usage — start the beat scheduler::
     celery -A scheduler.celery_app beat --loglevel=info
 """
 
+import ssl
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -28,6 +30,14 @@ from config.settings import (
 # ============================================================================
 
 app = Celery("gmailmind")
+
+# --- TLS/SSL config for rediss:// URLs (e.g. Upstash Redis) ---
+_redis_ssl = {}
+if CELERY_BROKER_URL.startswith("rediss://"):
+    _redis_ssl = {
+        "broker_use_ssl": {"ssl_cert_reqs": ssl.CERT_REQUIRED},
+        "redis_backend_use_ssl": {"ssl_cert_reqs": ssl.CERT_REQUIRED},
+    }
 
 app.conf.update(
     # --- Broker & backend ---
@@ -52,6 +62,9 @@ app.conf.update(
 
     # --- Auto-discover tasks ---
     imports=["scheduler.tasks"],
+
+    # --- TLS (applied only for rediss:// URLs) ---
+    **_redis_ssl,
 )
 
 # ============================================================================
