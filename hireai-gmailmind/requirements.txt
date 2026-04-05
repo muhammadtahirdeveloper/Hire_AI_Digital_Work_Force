@@ -1,7 +1,4 @@
-openai-agents
-openai
 anthropic
-groq
 fastapi
 uvicorn
 celery

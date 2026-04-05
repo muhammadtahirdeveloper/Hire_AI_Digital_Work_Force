@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from config.settings import OPENAI_API_KEY
+from config.settings import ANTHROPIC_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class BaseSkills:
         tone: str = "professional",
         template: str = "",
     ) -> str:
-        """Generate an appropriate reply using GPT-4o.
+        """Generate an appropriate reply using Claude.
 
         Args:
             email: Email dict with 'subject', 'body', and 'sender' keys.
@@ -56,11 +56,11 @@ class BaseSkills:
         Returns:
             Generated reply string, or a fallback acknowledgment.
         """
-        if OPENAI_API_KEY:
+        if ANTHROPIC_API_KEY:
             try:
-                return self._smart_reply_gpt(email, tone, template)
+                return self._smart_reply_claude(email, tone, template)
             except Exception as exc:
-                logger.warning("BaseSkills: GPT smart_reply failed: %s", exc)
+                logger.warning("BaseSkills: Claude smart_reply failed: %s", exc)
 
         # Fallback
         sender = email.get("sender", {})
@@ -72,14 +72,14 @@ class BaseSkills:
             "Best regards"
         )
 
-    def _smart_reply_gpt(
+    def _smart_reply_claude(
         self,
         email: dict,
         tone: str,
         template: str,
     ) -> str:
-        """Generate reply via GPT-4o."""
-        import httpx
+        """Generate reply via Claude Haiku."""
+        from anthropic import Anthropic
 
         subject = email.get("subject", "")
         body = email.get("body", "") or email.get("snippet", "")
@@ -95,20 +95,14 @@ class BaseSkills:
             "Reply only with the email body text, no subject line."
         )
 
-        response = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-            json={
-                "model": "gpt-4o",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7,
-                "max_tokens": 300,
-            },
-            timeout=30,
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-3-5-haiku-latest",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
         )
-        response.raise_for_status()
 
-        reply = response.json()["choices"][0]["message"]["content"].strip()
+        reply = response.content[0].text.strip()
         logger.info("BaseSkills: Generated smart reply (%d chars).", len(reply))
         return reply
 

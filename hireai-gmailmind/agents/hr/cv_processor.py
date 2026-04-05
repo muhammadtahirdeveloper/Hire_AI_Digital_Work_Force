@@ -9,7 +9,7 @@ import logging
 import re
 from typing import Any
 
-from config.settings import OPENAI_API_KEY
+from config.settings import ANTHROPIC_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +45,9 @@ class CVProcessor:
         return False
 
     def extract_cv_info(self, email_body: str, subject: str) -> dict[str, Any]:
-        """Extract candidate information from email body using GPT-4o.
+        """Extract candidate information from email body using Claude.
 
-        Falls back to regex extraction if OpenAI is not available.
+        Falls back to regex extraction if Anthropic is not available.
 
         Args:
             email_body: The email body text.
@@ -56,19 +56,18 @@ class CVProcessor:
         Returns:
             Dict with candidate info fields.
         """
-        # Try GPT-4o extraction first
-        if OPENAI_API_KEY:
+        if ANTHROPIC_API_KEY:
             try:
-                return self._extract_with_gpt(email_body, subject)
+                return self._extract_with_claude(email_body, subject)
             except Exception as exc:
-                logger.warning("CVProcessor: GPT extraction failed, falling back to regex: %s", exc)
+                logger.warning("CVProcessor: Claude extraction failed, falling back to regex: %s", exc)
 
         # Fallback to regex extraction
         return self._extract_with_regex(email_body, subject)
 
-    def _extract_with_gpt(self, email_body: str, subject: str) -> dict[str, Any]:
-        """Extract candidate info using GPT-4o."""
-        import httpx
+    def _extract_with_claude(self, email_body: str, subject: str) -> dict[str, Any]:
+        """Extract candidate info using Claude Haiku."""
+        from anthropic import Anthropic
 
         prompt = (
             "Extract candidate info from this email. Return JSON only with these keys: "
@@ -80,28 +79,21 @@ class CVProcessor:
             f"Body:\n{email_body[:3000]}"
         )
 
-        response = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-            json={
-                "model": "gpt-4o",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0,
-                "max_tokens": 500,
-            },
-            timeout=30,
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-3-5-haiku-latest",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
         )
-        response.raise_for_status()
 
-        content = response.json()["choices"][0]["message"]["content"]
+        content = response.content[0].text.strip()
         # Strip markdown code blocks if present
-        content = content.strip()
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\n?", "", content)
             content = re.sub(r"\n?```$", "", content)
 
         result = json.loads(content)
-        logger.info("CVProcessor: GPT extracted candidate info: %s", result.get("name"))
+        logger.info("CVProcessor: Claude extracted candidate info: %s", result.get("name"))
         return self._normalize_cv_info(result)
 
     def _extract_with_regex(self, email_body: str, subject: str) -> dict[str, Any]:
@@ -118,7 +110,7 @@ class CVProcessor:
 
         # Extract name from subject (common pattern: "Application - Name")
         name = None
-        name_match = re.search(r"(?:application|cv|resume)\s*[-–:]\s*(.+)", subject, re.IGNORECASE)
+        name_match = re.search(r"(?:application|cv|resume)\s*[-\u2013:]\s*(.+)", subject, re.IGNORECASE)
         if name_match:
             name = name_match.group(1).strip()
 

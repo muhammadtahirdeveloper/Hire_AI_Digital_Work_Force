@@ -24,8 +24,8 @@ GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
-# --- OpenAI ---
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# --- Anthropic Claude ---
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # --- Database ---
 DATABASE_URL = os.getenv(

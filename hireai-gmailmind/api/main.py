@@ -383,7 +383,6 @@ async def health_check():
 
     # AI provider check (quick — just verify key exists)
     import os
-    checks["groq_key"] = "configured" if os.environ.get("GROQ_API_KEY") else "missing"
     checks["claude_key"] = "configured" if os.environ.get("ANTHROPIC_API_KEY") else "missing"
 
     overall = "healthy" if checks["database"] == "healthy" else "degraded"

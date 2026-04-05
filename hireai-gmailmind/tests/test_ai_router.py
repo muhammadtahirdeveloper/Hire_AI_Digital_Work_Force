@@ -1,11 +1,11 @@
 """Comprehensive tests for the AI Router (config/ai_router.py).
 
 Tests cover:
-- Tier enforcement (free vs paid)
-- API key resolution (BYOK vs env)
-- Model selection per provider + tier
+- Tier enforcement (all tiers use Claude)
+- API key resolution (env var)
+- Model selection per tier
 - Provider dispatch (mocked)
-- Fallback on provider failure
+- Error handling
 - Health check (mocked)
 - Default config when user_agents row missing
 """
@@ -44,38 +44,22 @@ def _run(coro):
 
 
 class TestTierEnforcement:
-    """Test _enforce_tier — free users forced to groq, paid get claude."""
+    """Test _enforce_tier — all tiers use Claude."""
 
     def setup_method(self):
         self.router = AIRouter()
 
-    def test_trial_user_blocked_from_claude(self):
-        assert self.router._enforce_tier("claude", "trial") == "groq"
+    def test_trial_user_gets_claude(self):
+        assert self.router._enforce_tier("claude", "trial") == "claude"
 
-    def test_tier1_user_blocked_from_claude(self):
-        assert self.router._enforce_tier("claude", "tier1") == "groq"
+    def test_tier1_user_gets_claude(self):
+        assert self.router._enforce_tier("claude", "tier1") == "claude"
 
-    def test_tier2_user_allowed_claude(self):
+    def test_tier2_user_gets_claude(self):
         assert self.router._enforce_tier("claude", "tier2") == "claude"
 
-    def test_tier3_user_allowed_claude(self):
+    def test_tier3_user_gets_claude(self):
         assert self.router._enforce_tier("claude", "tier3") == "claude"
-
-    def test_trial_user_allowed_groq(self):
-        assert self.router._enforce_tier("groq", "trial") == "groq"
-
-    def test_tier1_user_allowed_groq(self):
-        assert self.router._enforce_tier("groq", "tier1") == "groq"
-
-    def test_tier3_user_allowed_groq(self):
-        assert self.router._enforce_tier("groq", "tier3") == "groq"
-
-    # BYOK providers allowed for any tier (key check happens elsewhere)
-    def test_trial_user_allowed_openai_byok(self):
-        assert self.router._enforce_tier("openai", "trial") == "openai"
-
-    def test_tier2_user_allowed_openai(self):
-        assert self.router._enforce_tier("openai", "tier2") == "openai"
 
 
 # ============================================================================
@@ -84,26 +68,10 @@ class TestTierEnforcement:
 
 
 class TestResolveKey:
-    """Test _resolve_key — BYOK preferred, then env var, else error."""
+    """Test _resolve_key — resolves Anthropic API key from env."""
 
     def setup_method(self):
         self.router = AIRouter()
-
-    def test_byok_preferred_over_env(self):
-        with patch.dict(os.environ, {"GROQ_API_KEY": "env-key"}):
-            assert self.router._resolve_key("groq", "my-byok-key") == "my-byok-key"
-
-    def test_env_fallback_when_no_byok(self):
-        with patch.dict(os.environ, {"GROQ_API_KEY": "env-key"}):
-            assert self.router._resolve_key("groq", None) == "env-key"
-
-    def test_env_fallback_groq(self):
-        with patch.dict(os.environ, {"GROQ_API_KEY": "groq-env"}):
-            assert self.router._resolve_key("groq", None) == "groq-env"
-
-    def test_env_fallback_openai(self):
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "oai-env"}):
-            assert self.router._resolve_key("openai", None) == "oai-env"
 
     def test_env_fallback_claude(self):
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "ant-env"}):
@@ -111,14 +79,9 @@ class TestResolveKey:
 
     def test_missing_key_raises_value_error(self):
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("GROQ_API_KEY", None)
+            os.environ.pop("ANTHROPIC_API_KEY", None)
             with pytest.raises(ValueError, match="No API key"):
-                self.router._resolve_key("groq", None)
-
-    def test_empty_byok_uses_env(self):
-        with patch.dict(os.environ, {"GROQ_API_KEY": "env-key"}):
-            # Empty string is falsy, should fall back to env
-            assert self.router._resolve_key("groq", "") == "env-key"
+                self.router._resolve_key("claude", None)
 
 
 # ============================================================================
@@ -127,41 +90,25 @@ class TestResolveKey:
 
 
 class TestModelSelection:
-    """Test _get_model — correct model per provider + tier."""
+    """Test _get_model — correct model per tier."""
 
     def setup_method(self):
         self.router = AIRouter()
 
-    # Groq (primary free provider)
-    def test_groq_trial(self):
-        assert self.router._get_model("groq", "trial") == "llama-3.1-8b-instant"
+    def test_claude_trial(self):
+        assert self.router._get_model("claude", "trial") == "claude-3-5-haiku-latest"
 
-    def test_groq_tier1(self):
-        assert self.router._get_model("groq", "tier1") == "llama-3.1-8b-instant"
+    def test_claude_tier1(self):
+        assert self.router._get_model("claude", "tier1") == "claude-3-5-haiku-latest"
 
-    def test_groq_tier2(self):
-        assert self.router._get_model("groq", "tier2") == "llama-3.1-70b-versatile"
-
-    # Claude (primary paid provider)
     def test_claude_tier2(self):
         assert self.router._get_model("claude", "tier2") == "claude-3-5-haiku-latest"
 
     def test_claude_tier3(self):
         assert self.router._get_model("claude", "tier3") == "claude-sonnet-4-5-20250514"
 
-    # OpenAI (BYOK)
-    def test_openai_tier1(self):
-        assert self.router._get_model("openai", "tier1") == "gpt-4o-mini"
-
-    def test_openai_tier2(self):
-        assert self.router._get_model("openai", "tier2") == "gpt-4o"
-
-    # Unknown
-    def test_unknown_provider_returns_default(self):
-        assert self.router._get_model("unknown", "tier1") == "llama-3.1-8b-instant"
-
     def test_unknown_tier_returns_default(self):
-        assert self.router._get_model("groq", "unknown_tier") == "llama-3.1-8b-instant"
+        assert self.router._get_model("claude", "unknown_tier") == "claude-3-5-haiku-latest"
 
 
 # ============================================================================
@@ -182,38 +129,37 @@ class TestGetUserConfig:
         with patch("config.ai_router.SessionLocal", return_value=mock_session):
             provider, key, tier = self.router._get_user_config("user-123")
 
-        assert provider == "groq"
+        assert provider == "claude"
         assert key is None
         assert tier == "trial"
 
     def test_reads_db_row(self):
         mock_session = MagicMock()
         mock_session.execute.return_value.fetchone.return_value = (
-            "groq", "byok-key-123", "tier2"
+            "claude", None, "tier2"
         )
 
         with patch("config.ai_router.SessionLocal", return_value=mock_session):
             provider, key, tier = self.router._get_user_config("user-456")
 
-        assert provider == "groq"
-        assert key == "byok-key-123"
+        assert provider == "claude"
         assert tier == "tier2"
 
-    def test_null_provider_defaults_to_groq(self):
+    def test_null_provider_defaults_to_claude(self):
         mock_session = MagicMock()
         mock_session.execute.return_value.fetchone.return_value = (None, None, None)
 
         with patch("config.ai_router.SessionLocal", return_value=mock_session):
             provider, key, tier = self.router._get_user_config("user-789")
 
-        assert provider == "groq"
+        assert provider == "claude"
         assert tier == "trial"
 
     def test_db_exception_returns_defaults(self):
         with patch("config.ai_router.SessionLocal", side_effect=Exception("DB down")):
             provider, key, tier = self.router._get_user_config("user-err")
 
-        assert provider == "groq"
+        assert provider == "claude"
         assert key is None
         assert tier == "trial"
 
@@ -224,21 +170,21 @@ class TestGetUserConfig:
 
 
 class TestGenerate:
-    """Test generate() — dispatches to correct provider with mocks."""
+    """Test generate() — dispatches to Claude with mocks."""
 
     def setup_method(self):
         self.router = AIRouter()
 
-    def test_generate_calls_groq_for_trial_user(self):
-        mock_result = {"content": "Hello!", "provider": "groq", "model": "llama-3.1-8b-instant"}
+    def test_generate_calls_claude_for_trial_user(self):
+        mock_result = {"content": "Hello!", "provider": "claude", "model": "claude-3-5-haiku-latest"}
 
-        with patch.object(self.router, "_get_user_config", return_value=("groq", None, "trial")), \
-             patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), \
-             patch.object(self.router, "_call_groq", new_callable=AsyncMock, return_value=mock_result):
+        with patch.object(self.router, "_get_user_config", return_value=("claude", None, "trial")), \
+             patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
+             patch.object(self.router, "_call_claude", new_callable=AsyncMock, return_value=mock_result):
 
             result = _run(self.router.generate("u1", "system", "hello"))
 
-        assert result["provider"] == "groq"
+        assert result["provider"] == "claude"
         assert result["content"] == "Hello!"
 
     def test_generate_calls_claude_for_tier2_user(self):
@@ -252,29 +198,7 @@ class TestGenerate:
 
         assert result["provider"] == "claude"
 
-    def test_generate_allows_openai_byok_for_trial(self):
-        """BYOK providers allowed for any tier — key resolution checked later."""
-        mock_result = {"content": "GPT!", "provider": "openai", "model": "gpt-4o-mini"}
-
-        with patch.object(self.router, "_get_user_config", return_value=("openai", "sk-key", "trial")), \
-             patch.object(self.router, "_call_openai", new_callable=AsyncMock, return_value=mock_result):
-
-            result = _run(self.router.generate("u3", "system", "hello"))
-
-        assert result["provider"] == "openai"
-
-    def test_generate_allows_openai_for_tier2(self):
-        mock_result = {"content": "GPT!", "provider": "openai", "model": "gpt-4o"}
-
-        with patch.object(self.router, "_get_user_config", return_value=("openai", "sk-key", "tier2")), \
-             patch.object(self.router, "_call_openai", new_callable=AsyncMock, return_value=mock_result):
-
-            result = _run(self.router.generate("u4", "system", "hello"))
-
-        assert result["provider"] == "openai"
-        assert result["model"] == "gpt-4o"
-
-    def test_generate_allows_claude_for_tier3(self):
+    def test_generate_calls_claude_for_tier3_user(self):
         mock_result = {"content": "Claude!", "provider": "claude", "model": "claude-sonnet-4-5-20250514"}
 
         with patch.object(self.router, "_get_user_config", return_value=("claude", None, "tier3")), \
@@ -285,62 +209,9 @@ class TestGenerate:
 
         assert result["provider"] == "claude"
 
-
-# ============================================================================
-# Fallback Tests
-# ============================================================================
-
-
-class TestFallback:
-    """Test generate() fallback when primary provider fails."""
-
-    def setup_method(self):
-        self.router = AIRouter()
-
-    def test_fallback_to_claude_when_groq_fails(self):
-        fallback_result = {"content": "Fallback!", "provider": "claude", "model": "claude-3-5-haiku-latest"}
-
-        with patch.object(self.router, "_get_user_config", return_value=("groq", None, "trial")), \
-             patch.dict(os.environ, {"GROQ_API_KEY": "key", "ANTHROPIC_API_KEY": "key2"}), \
-             patch.object(self.router, "_call_groq_with_retry", new_callable=AsyncMock, side_effect=Exception("Groq down")), \
-             patch.object(self.router, "_call_claude", new_callable=AsyncMock, return_value=fallback_result):
-
-            result = _run(self.router.generate("u1", "system", "hello"))
-
-        assert result["provider"] == "claude"
-        assert result["fallback"] is True
-        assert result["original_provider"] == "groq"
-
-    def test_fallback_to_groq_when_claude_fails(self):
-        fallback_result = {"content": "Fallback!", "provider": "groq", "model": "llama-3.1-70b-versatile"}
-
-        with patch.object(self.router, "_get_user_config", return_value=("claude", None, "tier2")), \
-             patch.dict(os.environ, {"ANTHROPIC_API_KEY": "key", "GROQ_API_KEY": "key2"}), \
-             patch.object(self.router, "_call_claude", new_callable=AsyncMock, side_effect=Exception("Claude down")), \
-             patch.object(self.router, "_call_groq", new_callable=AsyncMock, return_value=fallback_result):
-
-            result = _run(self.router.generate("u2", "system", "hello"))
-
-        assert result["provider"] == "groq"
-        assert result["fallback"] is True
-        assert result["original_provider"] == "claude"
-
-    def test_fallback_to_groq_when_openai_fails_for_paid_user(self):
-        fallback_result = {"content": "Fallback!", "provider": "groq", "model": "llama-3.1-70b-versatile"}
-
-        with patch.object(self.router, "_get_user_config", return_value=("openai", "sk-key", "tier2")), \
-             patch.dict(os.environ, {"GROQ_API_KEY": "key"}), \
-             patch.object(self.router, "_call_openai", new_callable=AsyncMock, side_effect=Exception("OpenAI down")), \
-             patch.object(self.router, "_call_groq", new_callable=AsyncMock, return_value=fallback_result):
-
-            result = _run(self.router.generate("u3", "system", "hello"))
-
-        assert result["fallback"] is True
-
-    def test_both_providers_fail_returns_error(self):
-        with patch.object(self.router, "_get_user_config", return_value=("groq", None, "trial")), \
-             patch.dict(os.environ, {"GROQ_API_KEY": "key", "ANTHROPIC_API_KEY": "key2"}), \
-             patch.object(self.router, "_call_groq_with_retry", new_callable=AsyncMock, side_effect=Exception("Groq down")), \
+    def test_claude_failure_returns_error(self):
+        with patch.object(self.router, "_get_user_config", return_value=("claude", None, "trial")), \
+             patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
              patch.object(self.router, "_call_claude", new_callable=AsyncMock, side_effect=Exception("Claude down")):
 
             result = _run(self.router.generate("u4", "system", "hello"))
@@ -352,131 +223,42 @@ class TestFallback:
 
 
 # ============================================================================
-# Groq Retry Tests
-# ============================================================================
-
-
-class TestGroqRetry:
-    """Test _call_groq_with_retry — exponential backoff on rate limits."""
-
-    def setup_method(self):
-        self.router = AIRouter()
-
-    def test_succeeds_on_first_attempt(self):
-        mock_result = {"content": "OK", "provider": "groq", "model": "llama-3.1-8b-instant"}
-
-        with patch.object(self.router, "_call_groq", new_callable=AsyncMock, return_value=mock_result):
-            result = _run(self.router._call_groq_with_retry(
-                "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
-            ))
-
-        assert result["provider"] == "groq"
-
-    def test_retries_on_rate_limit_then_succeeds(self):
-        mock_result = {"content": "OK", "provider": "groq", "model": "llama-3.1-8b-instant"}
-
-        with patch.object(
-            self.router, "_call_groq", new_callable=AsyncMock,
-            side_effect=[Exception("rate_limit_exceeded"), mock_result],
-        ), patch("config.ai_router.time.sleep") as mock_sleep:
-            result = _run(self.router._call_groq_with_retry(
-                "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
-            ))
-
-        assert result["provider"] == "groq"
-        mock_sleep.assert_called_once_with(1)  # 2^0 = 1
-
-    def test_retries_twice_on_rate_limit_then_succeeds(self):
-        mock_result = {"content": "OK", "provider": "groq", "model": "llama-3.1-8b-instant"}
-
-        with patch.object(
-            self.router, "_call_groq", new_callable=AsyncMock,
-            side_effect=[
-                Exception("rate_limit_exceeded"),
-                Exception("rate_limit_exceeded"),
-                mock_result,
-            ],
-        ), patch("config.ai_router.time.sleep") as mock_sleep:
-            result = _run(self.router._call_groq_with_retry(
-                "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
-            ))
-
-        assert result["provider"] == "groq"
-        assert mock_sleep.call_count == 2
-        mock_sleep.assert_any_call(1)   # 2^0
-        mock_sleep.assert_any_call(2)   # 2^1
-
-    def test_gives_up_after_three_rate_limits(self):
-        with patch.object(
-            self.router, "_call_groq", new_callable=AsyncMock,
-            side_effect=Exception("rate_limit_exceeded"),
-        ), patch("config.ai_router.time.sleep"):
-            try:
-                _run(self.router._call_groq_with_retry(
-                    "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
-                ))
-                assert False, "Should have raised"
-            except Exception as exc:
-                assert "rate_limit" in str(exc).lower()
-
-    def test_non_rate_limit_error_not_retried(self):
-        with patch.object(
-            self.router, "_call_groq", new_callable=AsyncMock,
-            side_effect=Exception("authentication_error: invalid key"),
-        ), patch("config.ai_router.time.sleep") as mock_sleep:
-            try:
-                _run(self.router._call_groq_with_retry(
-                    "system", "hello", "key", "llama-3.1-8b-instant", 100, 0.5,
-                ))
-                assert False, "Should have raised"
-            except Exception as exc:
-                assert "authentication_error" in str(exc)
-
-        mock_sleep.assert_not_called()
-
-
-# ============================================================================
 # Health Check Tests
 # ============================================================================
 
 
 class TestCheckProvider:
-    """Test check_provider() — health check for a provider."""
+    """Test check_provider() — health check for Claude."""
 
     def setup_method(self):
         self.router = AIRouter()
 
     def test_healthy_provider(self):
-        mock_result = {"content": "Hello", "provider": "groq", "model": "llama-3.1-8b-instant"}
+        mock_result = {"content": "Hello", "provider": "claude", "model": "claude-3-5-haiku-latest"}
 
-        with patch.dict(os.environ, {"GROQ_API_KEY": "key"}), \
-             patch.object(self.router, "_call_groq_with_retry", new_callable=AsyncMock, return_value=mock_result):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "key"}), \
+             patch.object(self.router, "_call_claude", new_callable=AsyncMock, return_value=mock_result):
 
-            result = _run(self.router.check_provider("groq"))
+            result = _run(self.router.check_provider("claude"))
 
         assert result["status"] == "healthy"
-        assert result["provider"] == "groq"
-        assert result["model"] == "llama-3.1-8b-instant"
+        assert result["provider"] == "claude"
+        assert result["model"] == "claude-3-5-haiku-latest"
 
     def test_unhealthy_provider(self):
-        with patch.dict(os.environ, {"GROQ_API_KEY": "key"}), \
-             patch.object(self.router, "_call_groq_with_retry", new_callable=AsyncMock, side_effect=Exception("timeout")):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "key"}), \
+             patch.object(self.router, "_call_claude", new_callable=AsyncMock, side_effect=Exception("timeout")):
 
-            result = _run(self.router.check_provider("groq"))
+            result = _run(self.router.check_provider("claude"))
 
         assert result["status"] == "error"
-        assert result["provider"] == "groq"
+        assert result["provider"] == "claude"
         assert "timeout" in result["error"]
-
-    def test_unknown_provider(self):
-        result = _run(self.router.check_provider("unknown_provider"))
-        assert result["status"] == "error"
-        assert "Unknown provider" in result["error"]
 
     def test_missing_key_returns_error(self):
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("GROQ_API_KEY", None)
-            result = _run(self.router.check_provider("groq"))
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            result = _run(self.router.check_provider("claude"))
 
         assert result["status"] == "error"
         assert "No API key" in result["error"]
@@ -514,6 +296,6 @@ class TestProviderMap:
     def test_managed_providers_are_subset_of_all(self):
         assert self.router.MANAGED_PROVIDERS.issubset(set(self.router.PROVIDER_MAP.keys()))
 
-    def test_three_providers_registered(self):
-        assert len(self.router.PROVIDER_MAP) == 3
-        assert set(self.router.PROVIDER_MAP.keys()) == {"groq", "openai", "claude"}
+    def test_one_provider_registered(self):
+        assert len(self.router.PROVIDER_MAP) == 1
+        assert set(self.router.PROVIDER_MAP.keys()) == {"claude"}
