@@ -717,9 +717,9 @@ async def google_auth_redirect(
 
 @router.get("/google/callback")
 async def google_auth_callback(
-    code: str = Query(None, description="Authorization code from Google"),
-    state: str = Query(None),
-    error: str = Query(None, description="Error code from Google OAuth"),
+    code: Optional[str] = Query(None, description="Authorization code from Google"),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None, description="Error code from Google OAuth"),
 ):
     """Handle the Google OAuth2 callback.
 
@@ -730,8 +730,7 @@ async def google_auth_callback(
     # Handle Google OAuth errors (e.g. testing mode, access_denied)
     if error:
         _pkce_store.pop(state, None)
-        _setup_store.pop(state, None)
-        setup_meta = _setup_store.get(state)
+        setup_meta = _setup_store.pop(state, None)
         is_setup = bool(setup_meta and setup_meta.get("setup"))
         if error == "access_denied":
             msg = (
