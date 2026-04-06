@@ -849,24 +849,46 @@ async def google_auth_callback(
             detail=f"Failed to save credentials: {exc}",
         )
 
-    # Update gmail_token_valid in user_agents
+    # Upsert gmail_email + gmail_token_valid in user_agents
+    # Fetch the Gmail address from the token (userinfo)
+    gmail_address = setup_email or ""
+    if credentials.token and not gmail_address:
+        try:
+            import httpx
+            resp = httpx.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {credentials.token}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                gmail_address = resp.json().get("email", "")
+        except Exception:
+            pass
+
     if user_id != "default":
         try:
             db = SessionLocal()
             try:
                 db.execute(
                     text("""
-                        UPDATE user_agents
-                        SET gmail_token_valid = true, gmail_valid = true, updated_at = NOW()
-                        WHERE user_id = :uid
+                        INSERT INTO user_agents (user_id, gmail_email, gmail_token_valid, gmail_valid, updated_at)
+                        VALUES (:uid, :email, true, true, NOW())
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            gmail_email = COALESCE(NULLIF(:email, ''), user_agents.gmail_email),
+                            gmail_token_valid = true,
+                            gmail_valid = true,
+                            is_paused = false,
+                            last_error = NULL,
+                            updated_at = NOW()
                     """),
-                    {"uid": user_id},
+                    {"uid": user_id, "email": gmail_address},
                 )
                 db.commit()
+                logger.info("user_agents upserted for user_id=%s gmail=%s", user_id, gmail_address)
             finally:
                 db.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to upsert user_agents: %s", exc)
 
         # Set up Gmail push notifications (watch)
         try:
@@ -1128,11 +1150,12 @@ def _ensure_user_agents_table(db):
             user_id TEXT UNIQUE NOT NULL,
             agent_type TEXT DEFAULT 'general',
             tier TEXT DEFAULT 'trial',
-            model TEXT DEFAULT 'groq',
-            ai_provider TEXT DEFAULT 'groq',
+            model TEXT DEFAULT 'claude',
+            ai_provider TEXT DEFAULT 'claude',
             ai_api_key TEXT,
             gmail_email TEXT,
             gmail_token_valid BOOLEAN DEFAULT false,
+            gmail_valid BOOLEAN DEFAULT false,
             is_paused BOOLEAN DEFAULT false,
             test_mode BOOLEAN DEFAULT false,
             config JSONB DEFAULT '{}',
@@ -1144,8 +1167,9 @@ def _ensure_user_agents_table(db):
     """))
     # Add columns for existing tables
     for col in [
-        "ai_provider TEXT DEFAULT 'groq'",
+        "ai_provider TEXT DEFAULT 'claude'",
         "ai_api_key TEXT",
+        "gmail_valid BOOLEAN DEFAULT false",
     ]:
         try:
             db.execute(text(f"ALTER TABLE user_agents ADD COLUMN IF NOT EXISTS {col}"))

@@ -11,11 +11,11 @@ const plans = [
     name: "Starter",
     price: 9,
     badge: "Best for Testing",
-    model: "Groq Llama (Free)",
+    model: "Claude Haiku (Fast)",
     featured: false,
     features: [
       "500 emails/month",
-      "Free API (Groq) — HireAI managed",
+      "Claude Haiku (Fast) — HireAI managed",
       "Optional BYOK any provider",
       "1 Gmail account",
       "Smart classification",

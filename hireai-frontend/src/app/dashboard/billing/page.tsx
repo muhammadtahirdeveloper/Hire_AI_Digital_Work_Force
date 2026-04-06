@@ -36,7 +36,7 @@ const plans = [
     name: "Starter",
     lsPlan: "starter",
     price: 19,
-    model: "claude-haiku-3-5",
+    model: "claude-haiku",
     popular: false,
     features: [
       "500 emails/month",
@@ -51,7 +51,7 @@ const plans = [
     name: "Professional",
     lsPlan: "professional",
     price: 49,
-    model: "claude-sonnet-4-5",
+    model: "claude-haiku",
     popular: true,
     features: [
       "5,000 emails/month",

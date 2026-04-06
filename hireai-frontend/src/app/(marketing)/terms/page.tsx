@@ -54,12 +54,12 @@ const sections = [
     ],
   },
   {
-    title: "6. Free API Terms",
+    title: "6. AI Model Terms",
     content: [
-      "The Starter plan includes access to free AI models (Groq) managed by HireAI at no additional cost.",
-      "Free models may produce less accurate results compared to premium models like Claude or GPT-4. HireAI is not responsible for the quality of free model outputs.",
-      "Availability of free API models depends on third-party providers and may change without notice.",
-      "Free model usage is subject to rate limits imposed by the respective providers. If limits are reached, your agent may temporarily pause.",
+      "All plans include access to Claude AI models (by Anthropic) managed by HireAI.",
+      "AI-generated responses may not always be accurate. HireAI is not responsible for the quality of AI model outputs. Users should review auto-generated replies before sending.",
+      "AI model availability depends on Anthropic's API services. If the API is temporarily unavailable, your agent may pause processing.",
+      "Usage is subject to rate limits based on your plan tier. If limits are reached, your agent may temporarily pause.",
     ],
   },
   {

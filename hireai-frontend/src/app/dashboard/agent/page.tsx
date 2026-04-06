@@ -88,14 +88,14 @@ const tierCards = [
     id: "tier1",
     name: "Starter",
     price: 9,
-    model: "Groq llama-3.1-8b-instant (Free)",
+    model: "Claude Haiku (Fast)",
     popular: false,
   },
   {
     id: "tier2",
     name: "Professional",
     price: 29,
-    model: "Claude Haiku 3.5",
+    model: "Claude Haiku",
     popular: true,
   },
   {
@@ -112,19 +112,19 @@ function getModelForTier(tier: string): { name: string; provider: string } {
   switch (tier) {
     case "tier2":
     case "professional":
-      return { name: "Claude Haiku 3.5", provider: "Anthropic" };
+      return { name: "Claude Haiku", provider: "Anthropic" };
     case "tier3":
     case "enterprise":
       return { name: "Claude Sonnet 4.5", provider: "Anthropic" };
     default:
       // trial, starter, tier1
-      return { name: "Groq llama-3.1-8b-instant (Free)", provider: "Groq" };
+      return { name: "Claude Haiku (Fast)", provider: "Anthropic" };
   }
 }
 
 const modelDescriptions: Record<string, string> = {
-  "Groq llama-3.1-8b-instant (Free)": "Ultra-fast inference for routine email classification and quick replies. Powered by Groq free tier.",
-  "Claude Haiku 3.5": "Fast and efficient for routine email classification and quick replies. Great for high-volume processing.",
+  "Claude Haiku (Fast)": "Fast and efficient for routine email classification and quick replies. Great for high-volume processing.",
+  "Claude Haiku": "Fast and efficient for routine email classification and quick replies. Great for high-volume processing.",
   "Claude Sonnet 4.5": "Advanced reasoning for complex emails, nuanced replies, and accurate classification across all categories.",
 };
 

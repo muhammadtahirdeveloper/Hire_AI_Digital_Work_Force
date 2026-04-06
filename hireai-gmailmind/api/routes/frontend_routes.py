@@ -169,7 +169,7 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
                     "test_mode": row[4] or False,
                     "agent_type": row[0] or "general",
                     "tier": row[1] or "trial",
-                    "model": row[2] or "llama-3.1-8b-instant",
+                    "model": row[2] or "claude-3-5-haiku-latest",
                     "gmail_connected": gmail_email,
                     "gmail_email": gmail_email,
                     "is_connected": bool(gmail_email),
@@ -189,7 +189,7 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
         "test_mode": False,
         "agent_type": "general",
         "tier": "trial",
-        "model": "llama-3.1-8b-instant",
+        "model": "claude-3-5-haiku-latest",
         "gmail_connected": "",
         "gmail_email": "",
         "is_connected": False,
@@ -382,7 +382,7 @@ async def resume_agent(user: dict = Depends(get_current_user)):
         db = SessionLocal()
         try:
             db.execute(
-                text("UPDATE user_agents SET is_paused = false, updated_at = NOW() WHERE user_id = :uid"),
+                text("UPDATE user_agents SET is_paused = false, last_error = NULL, updated_at = NOW() WHERE user_id = :uid"),
                 {"uid": user_id},
             )
             db.commit()
@@ -451,7 +451,7 @@ async def force_sync(user: dict = Depends(get_current_user)):
 
 
 class AgentConfigureRequest(BaseModel):
-    ai_provider: str = "groq"
+    ai_provider: str = "claude"
     api_key: Optional[str] = None
 
 
@@ -525,7 +525,7 @@ async def check_all_providers_health(user: dict = Depends(get_current_user)):
 
         router_instance = AIRouter()
         results = {}
-        for provider in ["groq", "claude"]:
+        for provider in ["claude"]:
             try:
                 results[provider] = await router_instance.check_provider(provider)
             except Exception as exc:
@@ -534,7 +534,6 @@ async def check_all_providers_health(user: dict = Depends(get_current_user)):
     except Exception as exc:
         logger.error("All providers health check failed: %s", exc)
         return _ok({
-            "groq": {"status": "error", "error": str(exc)},
             "claude": {"status": "error", "error": str(exc)},
         })
 
@@ -558,9 +557,8 @@ async def get_available_providers(user: dict = Depends(get_current_user)):
 
     is_paid = tier in {"tier2", "tier3"}
     providers = [
-        {"id": "groq", "name": "Groq (Llama)", "available": True, "free": True},
-        {"id": "claude", "name": "Claude (Anthropic)", "available": is_paid, "free": False},
-        {"id": "openai", "name": "OpenAI GPT-4", "available": True, "free": False, "byok": True},
+        {"id": "claude", "name": "Claude Haiku (Fast)", "available": True, "free": True},
+        {"id": "claude-byok", "name": "Claude (Bring Your Own Key)", "available": True, "free": False, "byok": True},
     ]
     return _ok({"providers": providers, "tier": tier})
 
@@ -1477,7 +1475,7 @@ async def get_billing_plan(user: dict = Depends(get_current_user)):
             db.close()
     except Exception:
         pass
-    return _ok({"tier": "trial", "model": "llama-3.1-8b-instant"})
+    return _ok({"tier": "trial", "model": "claude-3-5-haiku-latest"})
 
 
 @router.get("/billing/history")

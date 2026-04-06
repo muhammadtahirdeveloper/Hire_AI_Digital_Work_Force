@@ -73,10 +73,10 @@ const sections = [
   {
     title: "8. AI Provider Data Usage",
     content: [
-      "When using HireAI-managed API keys, your email data is sent to the respective AI provider (Groq, OpenAI, or Anthropic) for processing.",
-      "Each AI provider has its own data usage policy. HireAI-managed keys use API-only access, which means your data is NOT used for model training by any provider.",
-      "When using BYOK, your data is subject to the terms of your API key agreement with the respective provider.",
-      "We recommend reviewing the privacy policies of your chosen AI provider for complete details.",
+      "When using HireAI-managed API keys, your email data is sent to Anthropic (Claude AI) for processing.",
+      "Anthropic's API usage policy means your data is NOT used for model training. HireAI-managed keys use API-only access.",
+      "When using BYOK (Bring Your Own Key), your data is subject to the terms of your API key agreement with Anthropic.",
+      "We recommend reviewing Anthropic's privacy policy for complete details.",
     ],
   },
   {

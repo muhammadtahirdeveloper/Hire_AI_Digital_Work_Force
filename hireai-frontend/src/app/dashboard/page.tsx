@@ -101,7 +101,10 @@ export default function DashboardOverviewPage() {
   const [syncing, setSyncing] = useState(false);
 
   const user = session?.user;
-  const isTrial = user?.tier === "trial";
+  // Prefer backend tier over session tier (single source of truth)
+  const backendTier = agentStatus?.tier;
+  const effectiveTier = backendTier || user?.tier;
+  const isTrial = effectiveTier === "trial";
   const trialDays = getTrialDaysLeft(user?.trialEndDate);
   const trialExpired = isTrial && trialDays === 0;
 
@@ -173,24 +176,33 @@ export default function DashboardOverviewPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {agentStatus && (
-            <Badge variant={agentStatus.is_paused ? "warning" : "success"}>
-              <span
-                className={cn(
-                  "mr-1.5 inline-block h-1.5 w-1.5 rounded-full",
-                  agentStatus.is_paused ? "bg-warning" : "bg-success"
-                )}
-              />
-              {agentStatus.is_paused ? "Paused" : "Live"}
-            </Badge>
-          )}
-          {isTrial && !trialExpired && (
-            <Badge variant="warning">Trial: {trialDays} days left</Badge>
-          )}
-          {!isTrial && user?.tier && (
-            <Badge variant="navy" className="capitalize">
-              {user.tier.replace("tier", "Tier ")}
-            </Badge>
+          {trialExpired ? (
+            /* Trial expired — only show Choose Plan, never Agent Live */
+            <Link href="/dashboard/billing">
+              <Badge variant="danger">Choose Plan</Badge>
+            </Link>
+          ) : (
+            <>
+              {agentStatus && (
+                <Badge variant={agentStatus.is_paused ? "warning" : "success"}>
+                  <span
+                    className={cn(
+                      "mr-1.5 inline-block h-1.5 w-1.5 rounded-full",
+                      agentStatus.is_paused ? "bg-warning" : "bg-success"
+                    )}
+                  />
+                  {agentStatus.is_paused ? "Paused" : "Live"}
+                </Badge>
+              )}
+              {isTrial && (
+                <Badge variant="warning">Trial: {trialDays} days left</Badge>
+              )}
+              {!isTrial && effectiveTier && (
+                <Badge variant="navy" className="capitalize">
+                  {effectiveTier.replace("tier", "Tier ")}
+                </Badge>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -263,16 +275,16 @@ export default function DashboardOverviewPage() {
       )}
 
       {/* Agent error / paused due to failures */}
-      {agentStatus?.last_error && agentStatus.is_paused && (
+      {agentStatus?.last_error && agentStatus.is_paused && !trialExpired && (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
           <div className="flex items-center justify-between">
             <span className="font-medium text-warning">
               <AlertTriangle className="mr-1.5 inline h-4 w-4" />
-              Agent paused due to errors. Check your settings and resume.
+              Agent paused due to errors. {agentStatus.gmail_connected && agentStatus.gmail_valid
+                ? "Gmail is connected — click Resume to restart."
+                : "Check your settings and resume."}
             </span>
-            <Link href="/dashboard/agent">
-              <Button size="sm">View & Resume</Button>
-            </Link>
+            <Button size="sm" onClick={handleToggleAgent}>Resume Agent</Button>
           </div>
         </div>
       )}

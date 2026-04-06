@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
 type AgentType = "general" | "hr" | "real_estate" | "ecommerce";
-type AiModel = "groq" | "openai" | "claude";
+type AiModel = "claude" | "claude-byok";
 
 interface SetupData {
   gmailAddress: string;
@@ -77,26 +77,18 @@ const tones = [
 
 const aiModels = [
   {
-    id: "groq" as AiModel,
-    icon: Zap,
-    label: "Groq (Llama)",
-    description: "Ultra-fast inference, free tier — great for getting started",
-    tag: "Free",
+    id: "claude" as AiModel,
+    icon: Sparkles,
+    label: "Claude Haiku (HireAI Managed)",
+    description: "Fast and efficient — included with your plan, no API key needed",
+    tag: "Included",
     free: true,
   },
   {
-    id: "openai" as AiModel,
+    id: "claude-byok" as AiModel,
     icon: Brain,
-    label: "OpenAI GPT-4",
-    description: "Powerful and versatile — bring your own key",
-    tag: "BYOK",
-    free: false,
-  },
-  {
-    id: "claude" as AiModel,
-    icon: Sparkles,
-    label: "Claude (Anthropic)",
-    description: "Best reasoning and safety — bring your own key",
+    label: "Claude (Bring Your Own Key)",
+    description: "Use your own Anthropic API key for full control",
     tag: "BYOK",
     free: false,
   },
@@ -114,7 +106,7 @@ export function SetupWizard() {
     gmailAddress: "",
     gmailConnected: false,
     agentType: null,
-    aiModel: "groq",
+    aiModel: "claude",
     aiApiKey: "",
     businessName: "",
     userName: "",
@@ -502,11 +494,7 @@ export function SetupWizard() {
                   <Input
                     label="API Key"
                     type="password"
-                    placeholder={
-                      data.aiModel === "openai"
-                        ? "sk-..."
-                        : "sk-ant-..."
-                    }
+                    placeholder="sk-ant-..."
                     value={data.aiApiKey}
                     onChange={(e) =>
                       setData((prev) => ({ ...prev, aiApiKey: e.target.value }))
