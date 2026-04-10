@@ -166,7 +166,7 @@ class SetupRequest(BaseModel):
     email: str
     gmail_address: str = ""
     agent_type: str = "general"
-    ai_model: str = "groq"
+    ai_model: str = "claude"
     ai_api_key: Optional[str] = None
     business_name: str = ""
     user_name: str = ""
@@ -502,8 +502,8 @@ async def google_login(body: GoogleLoginRequest):
                         (user_id, agent_type, ai_provider,
                          gmail_email, model, is_paused, config)
                     VALUES
-                        (:uid, 'general', 'groq',
-                         :email, 'groq', false, '{}')
+                        (:uid, 'general', 'claude',
+                         :email, 'claude', false, '{}')
                     ON CONFLICT (user_id) DO NOTHING
                 """),
                 {"uid": user_id, "email": body.email.lower()},
@@ -587,7 +587,7 @@ async def supabase_sync(body: SupabaseSyncRequest):
                 text("""
                     INSERT INTO user_agents
                         (user_id, agent_type, ai_provider, gmail_email, model, is_paused, config)
-                    VALUES (:uid, 'general', 'groq', :email, 'groq', false, '{}')
+                    VALUES (:uid, 'general', 'claude', :email, 'claude', false, '{}')
                     ON CONFLICT (user_id) DO NOTHING
                 """),
                 {"uid": user_id, "email": body.email.lower()},

@@ -95,11 +95,11 @@ class AIRouter:
     # Tier-based model selection — Claude only
     PROVIDER_MODELS = {
         "claude": {
-            "default": "claude-3-5-haiku-latest",
-            "trial": "claude-3-5-haiku-latest",
-            "tier1": "claude-3-5-haiku-latest",
-            "tier2": "claude-3-5-haiku-latest",
-            "tier3": "claude-sonnet-4-5-20250514",
+            "default": "claude-haiku-4-5-20251001",
+            "trial": "claude-haiku-4-5-20251001",
+            "tier1": "claude-haiku-4-5-20251001",
+            "tier2": "claude-haiku-4-5-20251001",
+            "tier3": "claude-sonnet-4-5-20251022",
         },
     }
 
@@ -260,7 +260,7 @@ class AIRouter:
     def _get_model(self, provider: str, tier: str) -> str:
         """Get the correct Claude model name for a tier."""
         models = self.PROVIDER_MODELS.get("claude", {})
-        return models.get(tier, models.get("default", "claude-3-5-haiku-latest"))
+        return models.get(tier, models.get("default", "claude-haiku-4-5-20251001"))
 
     # ------------------------------------------------------------------ #
     # Provider implementation — Claude only

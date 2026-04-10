@@ -356,8 +356,8 @@ class TestProcessEmail:
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: AUTO_REPLY\nREPLY: Thanks for reaching out!\nREASON: Standard inquiry.",
-            "provider": "groq",
-            "model": "llama-3.1-8b-instant",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -365,16 +365,16 @@ class TestProcessEmail:
         result = _run(agent.process_email("user_1", email))
 
         assert result["action"] == "AUTO_REPLY"
-        assert result["provider"] == "groq"
-        assert result["model"] == "llama-3.1-8b-instant"
+        assert result["provider"] == "claude"
+        assert result["model"] == "claude-haiku-4-5-20251001"
         assert "category" in result
 
     def test_process_email_draft_action(self):
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: DRAFT_REPLY\nREPLY: I'll look into this and get back to you.",
-            "provider": "groq",
-            "model": "llama-3.3-70b-versatile",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -382,14 +382,14 @@ class TestProcessEmail:
         result = _run(agent.process_email("user_2", email))
 
         assert result["action"] == "DRAFT_REPLY"
-        assert result["provider"] == "groq"
+        assert result["provider"] == "claude"
 
     def test_process_email_escalate_action(self):
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: ESCALATE\nREASON: Legal threat detected.",
-            "provider": "groq",
-            "model": "llama-3.1-8b-instant",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -402,8 +402,8 @@ class TestProcessEmail:
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: LABEL_ARCHIVE\nREASON: Newsletter, no reply needed.",
-            "provider": "groq",
-            "model": "llama-3.1-8b-instant",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -420,8 +420,8 @@ class TestProcessEmail:
         agent = HRAgent()
         mock_result = {
             "content": "ACTION: DRAFT_REPLY\nREPLY: We received your application.",
-            "provider": "groq",
-            "model": "llama-3.1-8b-instant",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 
@@ -453,8 +453,8 @@ class TestProcessEmail:
         agent = GeneralAgent()
         mock_result = {
             "content": "ACTION: AUTO_REPLY\nREPLY: Hello!",
-            "provider": "groq",
-            "model": "llama-3.1-8b-instant",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
         }
         agent.ai_router.generate = AsyncMock(return_value=mock_result)
 

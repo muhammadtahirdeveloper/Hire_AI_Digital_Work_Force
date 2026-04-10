@@ -463,7 +463,7 @@ export function SetupWizard() {
                         Free Model Notice
                       </p>
                       <p className="mt-0.5 text-xs text-text-3">
-                        Free models may produce less accurate results than Claude or GPT-4.
+                        Free trial uses Claude Haiku. Upgrade for Claude Sonnet with higher accuracy.
                       </p>
                       <div className="mt-3 flex gap-2">
                         <Button

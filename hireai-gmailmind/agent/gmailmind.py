@@ -1,4 +1,4 @@
-"""GmailMind — Core Agent definition using the OpenAI Agents SDK.
+"""GmailMind — Core Agent definition using the Anthropic Claude API.
 
 This module defines the GmailMind agent: the autonomous digital employee
 that reads, triages, replies, labels, schedules, and escalates emails on
@@ -290,11 +290,11 @@ def create_agent(user_config: dict[str, Any]) -> Agent:
         name="GmailMind",
         instructions=system_prompt,
         tools=ALL_TOOLS,
-        model="gpt-4o",
+        model="claude-haiku-4-5-20251001",
     )
 
     logger.info(
-        "GmailMind agent created (model=gpt-4o, tools=%d, business=%s).",
+        "GmailMind agent created (model=claude-haiku-4-5-20251001, tools=%d, business=%s).",
         len(ALL_TOOLS),
         user_config.get("business_name", "unknown"),
     )
@@ -454,7 +454,7 @@ class GmailMind:
 
     @property
     def agent(self) -> Agent:
-        """Return the underlying OpenAI Agents SDK ``Agent`` instance."""
+        """Return the underlying ``Agent`` instance."""
         return self._agent
 
     @property

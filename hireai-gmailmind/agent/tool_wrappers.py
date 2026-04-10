@@ -1,4 +1,4 @@
-"""Safety-guarded tool wrappers for the OpenAI Agents SDK.
+"""Safety-guarded tool wrappers for the GmailMind agent.
 
 Every tool that the GmailMind agent can invoke is defined here as a
 plain ``async`` function wrapped with ``SafetyGuard.guard()`` so that

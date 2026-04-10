@@ -3,7 +3,7 @@ Real integration test: Claude processes an email.
 Requires: ANTHROPIC_API_KEY env var set.
 
 Usage:
-    ANTHROPIC_API_KEY=your-key python scripts/test_groq_real.py
+    ANTHROPIC_API_KEY=your-key python scripts/test_claude_real.py
 """
 
 import asyncio

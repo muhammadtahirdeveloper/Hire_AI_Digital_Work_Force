@@ -213,8 +213,8 @@ class TestLog:
         email = {"id": "msg_log", "subject": "Test", "sender": {"email": "log@test.com"}}
         decision = {
             "action": "AUTO_REPLY",
-            "provider": "groq",
-            "model": "llama-3.1-8b-instant",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
             "category": "inquiry",
         }
 
@@ -358,8 +358,8 @@ class TestProcessInbox:
         mock_agent.process_email = AsyncMock(return_value={
             "action": "AUTO_REPLY",
             "ai_response": "REPLY: I'm great, thanks!",
-            "provider": "groq",
-            "model": "llama-3.1-8b-instant",
+            "provider": "claude",
+            "model": "claude-haiku-4-5-20251001",
             "category": "general",
         })
 
@@ -376,7 +376,7 @@ class TestProcessInbox:
         assert result["processed"] == 1
         assert result["total"] == 1
         assert result["results"][0]["action"] == "AUTO_REPLY"
-        assert result["results"][0]["provider"] == "groq"
+        assert result["results"][0]["provider"] == "claude"
 
     def test_processing_error_captured(self):
         p = _make_processor("user_error")
@@ -426,8 +426,8 @@ class TestProcessInbox:
         mock_agent.process_email = AsyncMock(return_value={
             "action": "LABEL_ARCHIVE",
             "ai_response": "Archived.",
-            "provider": "groq",
-            "model": "llama-3.3-70b-versatile",
+            "provider": "claude",
+            "model": "claude-sonnet-4-5-20251022",
             "category": "newsletter",
         })
 
