@@ -1,6 +1,6 @@
 # GmailMind - AI-Powered Gmail Assistant
 
-**HireAI Digital Employee #1** — An autonomous Gmail management agent built with OpenAI Agents SDK. GmailMind connects to your Gmail, reads and understands emails using AI, drafts replies, categorizes messages, schedules follow-ups, and manages your inbox — all on autopilot.
+**HireAI Digital Employee #1** — An autonomous Gmail management agent powered by Anthropic Claude. GmailMind connects to your Gmail, reads and understands emails using AI, drafts replies, categorizes messages, schedules follow-ups, and manages your inbox — all on autopilot.
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ That's it. The API server, Celery worker, scheduler, PostgreSQL, and Redis will 
 ```
 hireai-gmailmind/
 ├── agent/              # Core AI agent engine
-│   ├── gmailmind.py        # Agent definition (OpenAI Agents SDK)
+│   ├── gmailmind.py        # Agent definition (Claude API)
 │   ├── reasoning_loop.py   # Observe > Think > Act > Remember loop
 │   ├── safety_guard.py     # 7 hard safety rules enforcer
 │   ├── report_generator.py # Daily summary reports
@@ -68,7 +68,7 @@ hireai-gmailmind/
 ## Key Features
 
 - **Gmail Integration**: Full Gmail API access (read, send, search, label, archive, draft)
-- **AI Agent**: OpenAI Agents SDK with GPT-4o for intelligent email understanding
+- **AI Agent**: Anthropic Claude (Haiku/Sonnet) for intelligent email understanding
 - **Semantic Memory**: pgvector-backed embedding storage for context recall
 - **Safety Guard**: 7 hard rules that can never be overridden (no delete, no spam reply, no impersonation, etc.)
 - **Background Processing**: Celery + Redis for scheduled polling and async tasks
@@ -80,7 +80,7 @@ hireai-gmailmind/
 
 | Component       | Technology                    |
 |----------------|-------------------------------|
-| AI Agent       | OpenAI Agents SDK + GPT-4o   |
+| AI Agent       | Anthropic Claude (Haiku/Sonnet) |
 | API Server     | FastAPI + Uvicorn             |
 | Task Queue     | Celery + Redis                |
 | Database       | PostgreSQL + pgvector         |
@@ -98,7 +98,7 @@ Copy `.env.example` to `.env` and configure the following:
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | Your OpenAI API key (for GPT-4o) |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key (for Claude) |
 | `GOOGLE_CLIENT_ID` | Google OAuth2 client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth2 client secret |
 | `ENCRYPTION_KEY` | Fernet key for encrypting stored tokens. Generate with: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |

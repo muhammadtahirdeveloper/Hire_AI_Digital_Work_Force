@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**GmailMind** is an AI-powered autonomous Gmail management platform built with the OpenAI Agents SDK. It provides industry-specific email agents that handle inboxes intelligently based on business vertical.
+**GmailMind** is an AI-powered autonomous Gmail management platform powered by Anthropic Claude. It provides industry-specific email agents that handle inboxes intelligently based on business vertical.
 
 **Vision:** Create specialized digital employees for different industries, starting with HR, Real Estate, and E-commerce.
 
@@ -123,8 +123,8 @@ Orchestrator (checks industry + tier)
 
 ### Core Technologies
 - **Language:** Python 3.11+
-- **AI Framework:** OpenAI Agents SDK
-- **AI Model:** GPT-4o
+- **AI Framework:** Anthropic Claude API
+- **AI Models:** Claude Haiku (claude-haiku-4-5-20251001) / Claude Sonnet (claude-sonnet-4-5-20251022)
 - **Web Framework:** FastAPI
 - **Task Queue:** Celery + Redis
 - **Database:** PostgreSQL + pgvector
