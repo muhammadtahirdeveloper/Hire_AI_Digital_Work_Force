@@ -13,7 +13,6 @@ import {
   Mail,
   Sparkles,
   Database,
-  Zap,
   Brain,
   AlertTriangle,
   Lock,
