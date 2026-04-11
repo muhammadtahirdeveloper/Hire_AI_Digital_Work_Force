@@ -24,15 +24,53 @@ interface AuthState {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Module-level cache to prevent duplicate /auth/user/ fetches across
+// multiple component instances that call useAuth().
+let _metaCache: { email: string; data: UserMeta; ts: number } | null = null;
+const META_CACHE_TTL = 30_000; // 30 seconds
+
 export function useAuth() {
   const [state, setState] = useState<AuthState>({ user: null, loading: true });
   const supabase = createClient();
+
+  const fetchUserMeta = useCallback(async (supabaseUser: User) => {
+    const email = supabaseUser.email || "";
+    if (!email) return;
+
+    // Return cached result if fresh
+    if (_metaCache && _metaCache.email === email && Date.now() - _metaCache.ts < META_CACHE_TTL) {
+      setState((prev) => prev.user ? { ...prev, user: { ...prev.user, meta: _metaCache!.data } } : prev);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/auth/user/${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const meta: UserMeta = {
+          id: data.id || supabaseUser.id,
+          email: data.email || email,
+          name: data.name || supabaseUser.user_metadata?.full_name || "",
+          image: data.image || supabaseUser.user_metadata?.avatar_url || "",
+          tier: data.tier || "trial",
+          agentType: data.agent_type || "general",
+          isActive: data.is_active ?? true,
+          setupComplete: data.setup_complete ?? false,
+          trialEndDate: data.trial_end_date,
+        };
+        _metaCache = { email, data: meta, ts: Date.now() };
+        setState((prev) => prev.user ? { ...prev, user: { ...prev.user, meta } } : prev);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, []);
 
   const syncBackendToken = useCallback(async (supabaseUser: User) => {
     // If we already have a backend token, just fetch user meta
     const existingToken = getAuthToken();
     if (existingToken) {
-      await fetchUserMeta(supabaseUser, existingToken);
+      await fetchUserMeta(supabaseUser);
       return;
     }
 
@@ -56,41 +94,13 @@ export function useAuth() {
         const token = data?.data?.token || data?.data?.access_token || data?.token || "";
         if (token) {
           setAuthToken(token);
-          await fetchUserMeta(supabaseUser, token);
+          await fetchUserMeta(supabaseUser);
         }
       }
     } catch {
       // Non-fatal
     }
-  }, [supabase]);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const fetchUserMeta = async (supabaseUser: User, _token?: string) => {
-    try {
-      const res = await fetch(`${API_URL}/auth/user/${encodeURIComponent(supabaseUser.email || "")}`);
-      if (res.ok) {
-        const data = await res.json();
-        setState((prev) => ({
-          ...prev,
-          user: prev.user
-            ? { ...prev.user, meta: {
-                id: data.id || supabaseUser.id,
-                email: data.email || supabaseUser.email || "",
-                name: data.name || supabaseUser.user_metadata?.full_name || "",
-                image: data.image || supabaseUser.user_metadata?.avatar_url || "",
-                tier: data.tier || "trial",
-                agentType: data.agent_type || "general",
-                isActive: data.is_active ?? true,
-                setupComplete: data.setup_complete ?? false,
-                trialEndDate: data.trial_end_date,
-              }}
-            : prev.user,
-        }));
-      }
-    } catch {
-      // Non-fatal
-    }
-  };
+  }, [supabase, fetchUserMeta]);
 
   useEffect(() => {
     const getUser = async () => {

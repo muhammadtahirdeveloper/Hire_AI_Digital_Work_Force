@@ -63,7 +63,24 @@ def build_calendar_service(user_id: str) -> Optional[Resource]:
             logger.warning("build_calendar_service: No credentials for user=%s", user_id)
             return None
 
-        credentials = refresh_credentials(creds_data, user_id=user_id)
+        # creds_data is a dict — convert to a Credentials object first
+        from config.credentials import build_credentials
+        from datetime import datetime as _dt
+
+        expiry = None
+        if creds_data.get("expiry"):
+            try:
+                expiry = _dt.fromisoformat(creds_data["expiry"])
+            except (ValueError, TypeError):
+                pass
+
+        credentials = build_credentials(
+            token=creds_data.get("token", ""),
+            refresh_token=creds_data.get("refresh_token", ""),
+            token_uri=creds_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+            expiry=expiry,
+        )
+        credentials = refresh_credentials(credentials, user_id=user_id)
         if not credentials:
             logger.warning("build_calendar_service: Could not refresh credentials for user=%s", user_id)
             return None

@@ -106,9 +106,11 @@ export default function DashboardLayout({
     return <PageLoader />;
   }
 
-  // Show setup wizard only for genuinely new users who have never completed setup
-  // Both session AND backend must confirm setup_complete=false
-  const isNewUser = session?.user && session.user.setupComplete === false && !agentStatus?.setup_complete;
+  // Show setup wizard only for genuinely new users who have never completed setup.
+  // Require agentStatus to be loaded AND explicitly confirm setup_complete=false
+  // so the wizard never flashes for existing users during loading.
+  const isNewUser = session?.user && session.user.setupComplete === false
+    && agentStatus !== undefined && agentStatus.setup_complete === false;
   if (isNewUser) {
     return <SetupWizard />;
   }

@@ -1,49 +1,31 @@
-# This file intentionally left minimal to avoid
-# conflicting with the openai-agents SDK package.
+# Standalone Agent SDK stubs for HireAI (Claude-only, no OpenAI SDK).
 #
-# The local agents/ directory (industry-specific agents) shadows the
-# installed openai-agents SDK.  We re-export the SDK's public symbols
-# so that `from agents import Agent` etc. continue to work.
+# The local agents/ directory contains industry-specific agent classes
+# (GeneralAgent, HRAgent, etc.).  The agent/gmailmind.py and
+# agent/tool_wrappers.py modules import `Agent` and `function_tool`
+# which were originally from the openai-agents SDK.  Since HireAI uses
+# Claude exclusively, we provide lightweight stand-ins here.
 
-import importlib as _importlib
-import sys as _sys
-import os as _os
-
-
-def _load_sdk():
-    """Import the real openai-agents SDK, bypassing this local package."""
-    this_dir = _os.path.dirname(_os.path.abspath(__file__))
-    parent_dir = _os.path.dirname(this_dir)
-
-    # 1. Remove this partially-loaded local package from sys.modules
-    saved_self = _sys.modules.pop(__name__, None)
-
-    # 2. Remove the project root from sys.path so Python skips us
-    original_path = _sys.path[:]
-    _sys.path = [
-        p for p in _sys.path
-        if _os.path.realpath(p) != _os.path.realpath(parent_dir)
-    ]
-
-    sdk = None
-    try:
-        # 3. Import the SDK — it loads as "agents" so relative imports work
-        sdk = _importlib.import_module("agents")
-    except ImportError:
-        pass
-    finally:
-        # 4. Restore sys.path
-        _sys.path = original_path
-        # 5. Restore our module in sys.modules (SDK sub-modules stay)
-        if saved_self is not None:
-            _sys.modules[__name__] = saved_self
-
-    return sdk
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 
-_sdk = _load_sdk()
+@dataclass
+class Agent:
+    """Minimal Agent container used by agent/gmailmind.py."""
 
-if _sdk is not None:
-    # Re-export every public symbol from the SDK
-    _exports = {k: getattr(_sdk, k) for k in dir(_sdk) if not k.startswith("_")}
-    globals().update(_exports)
+    name: str = "GmailMind"
+    instructions: str = ""
+    tools: list = field(default_factory=list)
+    model: str = "claude-haiku-4-5-20251001"
+
+
+def function_tool(fn: Callable) -> Callable:
+    """Decorator that marks a function as an agent tool.
+
+    This is a no-op decorator — it simply returns the original function
+    unchanged.  The function is collected into ``ALL_TOOLS`` and invoked
+    directly by the orchestrator / reasoning loop.
+    """
+    fn._is_tool = True  # type: ignore[attr-defined]
+    return fn
