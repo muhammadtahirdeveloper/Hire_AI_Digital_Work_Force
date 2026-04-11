@@ -608,7 +608,7 @@ export default function DashboardOverviewPage() {
                   <div className="flex justify-between">
                     <span className="text-text-3">Model</span>
                     <span className="font-mono text-xs text-text-2">
-                      {agentStatus.model}
+                      {agentStatus.tier === "tier3" ? "Claude Sonnet 4.5" : "Claude Haiku"}
                     </span>
                   </div>
                   <div className="flex justify-between">

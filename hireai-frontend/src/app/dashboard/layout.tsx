@@ -23,7 +23,7 @@ function TrialExpiredModal() {
         </div>
         <h2 className="text-xl font-bold text-gray-900">Trial Period Ended</h2>
         <p className="mt-3 text-sm text-gray-600">
-          Your 7-day free trial has expired. Upgrade your plan to continue
+          Your 14-day free trial has expired. Upgrade your plan to continue
           using your AI email agent.
         </p>
         <div className="mt-6 flex flex-col gap-3">
@@ -51,7 +51,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { session, status } = useAuth();
-  const { data: agentStatus } = useAgentStatus();
+  const { data: agentStatus, isLoading: agentStatusLoading } = useAgentStatus();
   const [showTrialModal, setShowTrialModal] = useState(false);
 
   // Check trial expiry from backend (single source of truth)
@@ -102,12 +102,12 @@ export default function DashboardLayout({
       .catch((e) => console.error("Token sync failed:", e));
   }, [session?.user?.email]);
 
-  if (status === "loading") {
+  if (status === "loading" || agentStatusLoading) {
     return <PageLoader />;
   }
 
-  // Show setup wizard only for new users without agent config
-  // Skip for existing users who already have setup_complete=true OR have agent status
+  // Show setup wizard only for genuinely new users who have never completed setup
+  // Both session AND backend must confirm setup_complete=false
   const isNewUser = session?.user && session.user.setupComplete === false && !agentStatus?.setup_complete;
   if (isNewUser) {
     return <SetupWizard />;

@@ -322,7 +322,7 @@ async def register(body: RegisterRequest):
                 raise HTTPException(status_code=409, detail="Email already registered")
 
             user_id = str(uuid.uuid4())
-            trial_end = datetime.now(timezone.utc) + timedelta(days=7)
+            trial_end = datetime.now(timezone.utc) + timedelta(days=14)
             verification_token = str(uuid.uuid4())
             verification_expires = datetime.now(timezone.utc) + timedelta(hours=24)
 
@@ -474,7 +474,7 @@ async def google_login(body: GoogleLoginRequest):
                 user_id = row[0]
             else:
                 user_id = str(uuid.uuid4())
-                trial_end = datetime.now(timezone.utc) + timedelta(days=7)
+                trial_end = datetime.now(timezone.utc) + timedelta(days=14)
                 db.execute(
                     text("""
                         INSERT INTO users (id, email, name, image, google_id, provider, tier,
@@ -562,7 +562,7 @@ async def supabase_sync(body: SupabaseSyncRequest):
             else:
                 # Create new user
                 user_id = str(uuid.uuid4())
-                trial_end = datetime.now(timezone.utc) + timedelta(days=7)
+                trial_end = datetime.now(timezone.utc) + timedelta(days=14)
                 db.execute(
                     text("""
                         INSERT INTO users (id, email, name, image, provider, tier,
@@ -820,20 +820,35 @@ async def google_auth_callback(
     setup_email = (setup_meta or {}).get("email", "")
     is_setup = bool(setup_meta and setup_meta.get("setup"))
 
-    # Determine user_id — use email if available, else "default"
-    user_id = setup_email or "default"
+    # Determine user_id — ALWAYS resolve to UUID from users table
+    user_id = "default"
 
-    # If we have a setup email, try to find the actual user ID
-    if setup_email:
+    # First try setup_email, then try the Gmail address from the token
+    lookup_email = setup_email
+    if not lookup_email and credentials.token:
+        try:
+            import httpx
+            resp = httpx.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {credentials.token}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                lookup_email = resp.json().get("email", "")
+        except Exception:
+            pass
+
+    if lookup_email:
         try:
             db = SessionLocal()
             try:
                 row = db.execute(
                     text("SELECT id FROM users WHERE email = :email"),
-                    {"email": setup_email.lower()},
+                    {"email": lookup_email.lower()},
                 ).fetchone()
                 if row:
                     user_id = str(row[0])
+                    logger.info("OAuth callback: resolved user_id=%s for email=%s", user_id, lookup_email)
             finally:
                 db.close()
         except Exception:
@@ -850,20 +865,7 @@ async def google_auth_callback(
         )
 
     # Upsert gmail_email + gmail_token_valid in user_agents
-    # Fetch the Gmail address from the token (userinfo)
-    gmail_address = setup_email or ""
-    if credentials.token and not gmail_address:
-        try:
-            import httpx
-            resp = httpx.get(
-                "https://www.googleapis.com/oauth2/v2/userinfo",
-                headers={"Authorization": f"Bearer {credentials.token}"},
-                timeout=5,
-            )
-            if resp.status_code == 200:
-                gmail_address = resp.json().get("email", "")
-        except Exception:
-            pass
+    gmail_address = lookup_email or setup_email or ""
 
     if user_id != "default":
         try:
@@ -871,8 +873,10 @@ async def google_auth_callback(
             try:
                 db.execute(
                     text("""
-                        INSERT INTO user_agents (user_id, gmail_email, gmail_token_valid, gmail_valid, updated_at)
-                        VALUES (:uid, :email, true, true, NOW())
+                        INSERT INTO user_agents (user_id, agent_type, ai_provider, model,
+                            gmail_email, gmail_token_valid, gmail_valid, is_paused, updated_at)
+                        VALUES (:uid, 'general', 'claude', 'claude',
+                            :email, true, true, false, NOW())
                         ON CONFLICT (user_id) DO UPDATE SET
                             gmail_email = COALESCE(NULLIF(:email, ''), user_agents.gmail_email),
                             gmail_token_valid = true,
