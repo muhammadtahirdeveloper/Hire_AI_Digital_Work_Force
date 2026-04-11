@@ -4,6 +4,7 @@ Starts the API server with:
   - Security headers middleware (OWASP best practices).
   - CORS middleware (configured origins).
   - API key authentication (via ``security.middleware``).
+  - APScheduler for background periodic jobs (replaces Celery + Redis).
   - Multiple route groups: agents, config, reports, hr, platform.
 
 Run locally::
@@ -409,3 +410,118 @@ async def platform_health():
         },
         "error": None,
     }
+
+
+# ============================================================================
+# APScheduler — Background periodic jobs (replaces Celery + Redis)
+# ============================================================================
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from config.settings import POLL_INTERVAL_SECONDS
+
+_scheduler = BackgroundScheduler(timezone="UTC")
+
+
+@app.on_event("startup")
+async def start_scheduler():
+    """Start APScheduler with all periodic jobs."""
+    from jobs import (
+        run_gmailmind_all_users,
+        process_due_followups,
+        send_daily_report,
+        send_hr_weekly_report,
+        send_real_estate_weekly_report,
+        send_ecommerce_weekly_report,
+        renew_gmail_watches,
+        send_event_reminders,
+        send_weekly_user_summary,
+    )
+
+    # Agent loop — every POLL_INTERVAL_SECONDS (default 300s)
+    _scheduler.add_job(
+        run_gmailmind_all_users,
+        IntervalTrigger(seconds=POLL_INTERVAL_SECONDS),
+        id="agent-loop",
+        replace_existing=True,
+    )
+
+    # Follow-ups — every 2 minutes
+    _scheduler.add_job(
+        process_due_followups,
+        IntervalTrigger(seconds=120),
+        id="followups",
+        replace_existing=True,
+    )
+
+    # Daily report — 18:00 UTC
+    _scheduler.add_job(
+        send_daily_report,
+        CronTrigger(hour=18, minute=0),
+        args=["default"],
+        id="daily-report",
+        replace_existing=True,
+    )
+
+    # HR weekly report — Monday 09:00 UTC
+    _scheduler.add_job(
+        send_hr_weekly_report,
+        CronTrigger(day_of_week="mon", hour=9, minute=0),
+        args=["default"],
+        id="hr-weekly",
+        replace_existing=True,
+    )
+
+    # Real Estate weekly report — Monday 09:00 UTC
+    _scheduler.add_job(
+        send_real_estate_weekly_report,
+        CronTrigger(day_of_week="mon", hour=9, minute=0),
+        args=["default"],
+        id="re-weekly",
+        replace_existing=True,
+    )
+
+    # E-commerce weekly report — Monday 09:30 UTC
+    _scheduler.add_job(
+        send_ecommerce_weekly_report,
+        CronTrigger(day_of_week="mon", hour=9, minute=30),
+        args=["default"],
+        id="ecom-weekly",
+        replace_existing=True,
+    )
+
+    # Renew Gmail watches — daily 03:00 UTC
+    _scheduler.add_job(
+        renew_gmail_watches,
+        CronTrigger(hour=3, minute=0),
+        id="gmail-watches",
+        replace_existing=True,
+    )
+
+    # Event reminders — every 30 minutes
+    _scheduler.add_job(
+        send_event_reminders,
+        CronTrigger(minute="*/30"),
+        id="event-reminders",
+        replace_existing=True,
+    )
+
+    # Weekly user summary — Monday 08:00 UTC
+    _scheduler.add_job(
+        send_weekly_user_summary,
+        CronTrigger(day_of_week="mon", hour=8, minute=0),
+        args=["default"],
+        id="weekly-summary",
+        replace_existing=True,
+    )
+
+    _scheduler.start()
+    logger.info("APScheduler started with %d jobs", len(_scheduler.get_jobs()))
+
+
+@app.on_event("shutdown")
+async def stop_scheduler():
+    """Gracefully shut down APScheduler."""
+    _scheduler.shutdown(wait=False)
+    logger.info("APScheduler stopped")

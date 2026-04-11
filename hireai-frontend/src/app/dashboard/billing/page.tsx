@@ -122,9 +122,9 @@ export default function BillingPage() {
 
   const user = session?.user;
   const currentTier = subscription?.tier || agentStatus?.tier || user?.tier || "trial";
-  const currentModel = agentStatus?.model || "claude-sonnet-4-5";
+  const currentModel = agentStatus?.model || "claude-haiku-4-5";
   const isTrial = currentTier === "trial";
-  const trialDays = getTrialDaysLeft(user?.trialEndDate);
+  const trialDays = agentStatus?.trial_days_left ?? getTrialDaysLeft(agentStatus?.trial_end_date || user?.trialEndDate);
   const currentPlan = plans.find((p) => p.id === currentTier);
   const referralCode = user?.id ? `HIRE-${user.id.slice(0, 6).toUpperCase()}` : "HIRE-XXXXXX";
   const hasSubscription = !!subscription && subscription.status === "active";

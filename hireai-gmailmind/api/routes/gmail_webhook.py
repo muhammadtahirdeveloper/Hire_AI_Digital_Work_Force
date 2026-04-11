@@ -72,16 +72,13 @@ async def gmail_push_notification(request: Request):
         logger.warning("Gmail webhook: no user found for %s", email_address)
         return Response(status_code=200)
 
-    # Trigger immediate processing on the realtime queue
+    # Trigger immediate processing in background thread
     try:
-        from scheduler.tasks import run_gmailmind_for_user
+        from jobs import run_gmailmind_for_user, run_in_background
 
-        run_gmailmind_for_user.apply_async(
-            args=(user_id,),
-            queue="realtime",
-        )
+        run_in_background(run_gmailmind_for_user, user_id)
         logger.info(
-            "Gmail webhook: triggered realtime processing for user=%s (%s)",
+            "Gmail webhook: triggered processing for user=%s (%s)",
             user_id, email_address,
         )
     except Exception as exc:

@@ -1,137 +1,59 @@
-"""Rate limiting for GmailMind API using Redis.
+"""Rate limiting for GmailMind API.
 
 Prevents API abuse by limiting requests per time window.
+Uses in-memory tracking (Redis removed).
 """
 
 import logging
+import time
 from typing import Optional
 
-import redis
 from fastapi import Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-
-from config.settings import REDIS_URL
 
 logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
-    """Redis-based rate limiter for API endpoints."""
+    """In-memory rate limiter for API endpoints."""
 
-    # Rate limit configurations (requests per window in seconds)
     LIMITS = {
-        'default': {'requests': 100, 'window': 60},           # 100 req/min
-        'email_processing': {'requests': 10, 'window': 60},   # 10/min
-        'api_key_creation': {'requests': 5, 'window': 3600},  # 5/hour
-        'reports': {'requests': 20, 'window': 3600},          # 20/hour
+        'default': {'requests': 100, 'window': 60},
+        'email_processing': {'requests': 10, 'window': 60},
+        'api_key_creation': {'requests': 5, 'window': 3600},
+        'reports': {'requests': 20, 'window': 3600},
     }
 
     def __init__(self):
-        """Initialize rate limiter with Redis connection.
+        self._buckets: dict[str, list[float]] = {}
+        logger.info("[RateLimiter] Using in-memory rate limiter")
 
-        If Redis is unavailable, the rate limiter gracefully degrades
-        and allows all requests (logs warning).
-        """
-        try:
-            self.redis_client = redis.from_url(
-                REDIS_URL,
-                decode_responses=True,
-                socket_connect_timeout=2
-            )
-            # Test connection
-            self.redis_client.ping()
-            self.redis_available = True
-            logger.info("[RateLimiter] Connected to Redis at %s", REDIS_URL)
-        except Exception as exc:
-            self.redis_available = False
-            self.redis_client = None
-            logger.warning(
-                "[RateLimiter] Redis unavailable, rate limiting disabled: %s",
-                exc
-            )
-
-    def check_rate_limit(
-        self,
-        identifier: str,
-        limit_type: str = 'default'
-    ) -> dict:
-        """Check if request is within rate limit.
-
-        Uses Redis INCR + EXPIRE pattern for efficient rate limiting.
-
-        Args:
-            identifier: User ID, API key, or IP address
-            limit_type: Type of limit to apply (default, email_processing, etc.)
-
-        Returns:
-            dict: {
-                allowed: bool,
-                remaining: int,
-                reset_in: int (seconds until reset)
-            }
-        """
-        # Graceful degradation if Redis unavailable
-        if not self.redis_available:
-            return {
-                'allowed': True,
-                'remaining': 999,
-                'reset_in': 60
-            }
-
-        # Get limit configuration
+    def check_rate_limit(self, identifier: str, limit_type: str = 'default') -> dict:
         limit_config = self.LIMITS.get(limit_type, self.LIMITS['default'])
         max_requests = limit_config['requests']
         window = limit_config['window']
 
-        # Redis key for this identifier and limit type
-        key = f"ratelimit:{limit_type}:{identifier}"
+        key = f"{limit_type}:{identifier}"
+        now = time.time()
+        cutoff = now - window
 
-        try:
-            # Get current count
-            current = self.redis_client.get(key)
+        # Get or create bucket, prune old entries
+        bucket = self._buckets.get(key, [])
+        bucket = [t for t in bucket if t > cutoff]
 
-            if current is None:
-                # First request in this window
-                self.redis_client.setex(key, window, 1)
-                return {
-                    'allowed': True,
-                    'remaining': max_requests - 1,
-                    'reset_in': window
-                }
+        if len(bucket) >= max_requests:
+            reset_in = int(bucket[0] - cutoff) if bucket else window
+            self._buckets[key] = bucket
+            return {'allowed': False, 'remaining': 0, 'reset_in': max(reset_in, 1)}
 
-            current = int(current)
+        bucket.append(now)
+        self._buckets[key] = bucket
 
-            if current >= max_requests:
-                # Rate limit exceeded
-                ttl = self.redis_client.ttl(key)
-                logger.warning(
-                    "[RateLimiter] Rate limit exceeded: %s (type=%s, count=%d)",
-                    identifier, limit_type, current
-                )
-                return {
-                    'allowed': False,
-                    'remaining': 0,
-                    'reset_in': ttl if ttl > 0 else window
-                }
-
-            # Increment counter
-            self.redis_client.incr(key)
-            ttl = self.redis_client.ttl(key)
-
-            return {
-                'allowed': True,
-                'remaining': max_requests - current - 1,
-                'reset_in': ttl if ttl > 0 else window
-            }
-
-        except Exception as exc:
-            logger.error("[RateLimiter] Error checking rate limit: %s", exc)
-            # On error, allow request (fail open)
-            return {
-                'allowed': True,
-                'remaining': 999,
-                'reset_in': 60
-            }
+        return {
+            'allowed': True,
+            'remaining': max_requests - len(bucket),
+            'reset_in': window,
+        }
 
 
 # Global rate limiter instance

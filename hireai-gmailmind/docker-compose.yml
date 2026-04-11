@@ -8,33 +8,21 @@
 
 version: "3.9"
 
-x-gmailmind-common: &gmailmind-common
-  build:
-    context: .
-    dockerfile: Dockerfile
-  env_file:
-    - .env
-  environment:
-    PYTHONPATH: /app
-    DATABASE_URL: ${DATABASE_URL}
-    REDIS_URL: redis://redis:6379/0
-    CELERY_BROKER_URL: redis://redis:6379/0
-    CELERY_RESULT_BACKEND: redis://redis:6379/1
-    HTTPS: ${HTTPS:-false}  # Set to true in production with real SSL certs
-  depends_on:
-    postgres:
-      condition: service_healthy
-    redis:
-      condition: service_healthy
-  restart: unless-stopped
-
 services:
   # ------------------------------------------
-  # FastAPI — Main API server
+  # FastAPI — Main API server (includes APScheduler)
   # ------------------------------------------
   gmailmind-api:
-    <<: *gmailmind-common
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: gmailmind-api
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: ${DATABASE_URL}
+      HTTPS: ${HTTPS:-false}
     command: >
       sh -c "python scripts/setup_db.py &&
              uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
@@ -42,35 +30,17 @@ services:
       - "${APP_PORT:-8000}:8000"
     volumes:
       - .:/app
-      - ./ssl:/app/ssl  # Mount SSL certificates (for production HTTPS)
-    # For production HTTPS, use:
-    # command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/ssl/key.pem --ssl-certfile=/app/ssl/cert.pem
+      - ./ssl:/app/ssl
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
-
-  # ------------------------------------------
-  # Celery Worker — Processes agent tasks
-  # ------------------------------------------
-  gmailmind-worker:
-    <<: *gmailmind-common
-    container_name: gmailmind-worker
-    command: celery -A scheduler.celery_app worker --loglevel=info --concurrency=2 -Q default,agent,followups,reports
-    volumes:
-      - .:/app
-
-  # ------------------------------------------
-  # Celery Beat — Periodic task scheduler
-  # ------------------------------------------
-  gmailmind-scheduler:
-    <<: *gmailmind-common
-    container_name: gmailmind-scheduler
-    command: celery -A scheduler.celery_app beat --loglevel=info
-    volumes:
-      - .:/app
+    restart: unless-stopped
 
   # ------------------------------------------
   # PostgreSQL + pgvector
@@ -93,23 +63,5 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ------------------------------------------
-  # Redis — Celery message broker
-  # ------------------------------------------
-  redis:
-    image: redis:7-alpine
-    container_name: gmailmind-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
 volumes:
   pgdata:
-  redisdata:

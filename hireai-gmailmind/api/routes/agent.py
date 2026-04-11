@@ -67,7 +67,7 @@ async def start_agent(
     _verify_user_access(user, user_id)
 
     try:
-        from scheduler.tasks import run_gmailmind_for_user
+        from jobs import run_gmailmind_for_user, run_in_background
 
         # Check if already running
         db = SessionLocal()
@@ -84,13 +84,12 @@ async def start_agent(
         finally:
             db.close()
 
-        # Dispatch Celery task
-        task = run_gmailmind_for_user.delay(user_id)
-        logger.info("Agent started for user %s — task_id=%s", user_id, task.id)
+        # Run in background thread
+        run_in_background(run_gmailmind_for_user, user_id)
+        logger.info("Agent started for user %s", user_id)
 
         return _ok({
             "message": "Agent started successfully.",
-            "task_id": task.id,
             "status": "running",
         })
 
@@ -111,25 +110,11 @@ async def stop_agent(
 ):
     """Stop the GmailMind agent for a user.
 
-    Sets the agent status to 'idle' and revokes any running Celery tasks.
+    Sets the agent status to 'idle'.
     """
     _verify_user_access(user, user_id)
 
     try:
-        from scheduler.celery_app import app as celery_app
-
-        # Revoke active tasks for this user
-        inspector = celery_app.control.inspect()
-        active = inspector.active() or {}
-
-        revoked = 0
-        for worker_tasks in active.values():
-            for task_info in worker_tasks:
-                task_args = task_info.get("args", [])
-                if task_args and task_args[0] == user_id:
-                    celery_app.control.revoke(task_info["id"], terminate=True)
-                    revoked += 1
-
         # Update status to idle
         db = SessionLocal()
         try:
@@ -147,11 +132,10 @@ async def stop_agent(
         finally:
             db.close()
 
-        logger.info("Agent stopped for user %s — %d tasks revoked.", user_id, revoked)
+        logger.info("Agent stopped for user %s.", user_id)
 
         return _ok({
             "message": "Agent stopped.",
-            "tasks_revoked": revoked,
             "status": "idle",
         })
 

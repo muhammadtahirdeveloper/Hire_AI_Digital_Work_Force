@@ -1285,10 +1285,10 @@ async def save_setup(body: SetupRequest):
 
             logger.info("Setup complete for user: %s", email)
 
-            # Auto-start the agent via Celery task
+            # Auto-start the agent in background
             try:
-                from scheduler.tasks import run_gmailmind_for_user
-                run_gmailmind_for_user.delay(str(user_id))
+                from jobs import run_gmailmind_for_user, run_in_background
+                run_in_background(run_gmailmind_for_user, str(user_id))
                 logger.info("Auto-started agent for user: %s (id=%s)", email, user_id)
             except Exception as auto_exc:
                 logger.warning("Could not auto-start agent: %s", auto_exc)

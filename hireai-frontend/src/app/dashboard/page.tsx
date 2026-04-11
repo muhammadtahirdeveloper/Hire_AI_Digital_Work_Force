@@ -101,11 +101,10 @@ export default function DashboardOverviewPage() {
   const [syncing, setSyncing] = useState(false);
 
   const user = session?.user;
-  // Prefer backend tier over session tier (single source of truth)
-  const backendTier = agentStatus?.tier;
-  const effectiveTier = backendTier || user?.tier;
+  // Single source of truth: backend /api/agent/status
+  const effectiveTier = agentStatus?.tier || user?.tier || "trial";
   const isTrial = effectiveTier === "trial";
-  const trialDays = getTrialDaysLeft(user?.trialEndDate);
+  const trialDays = agentStatus?.trial_days_left ?? getTrialDaysLeft(agentStatus?.trial_end_date || user?.trialEndDate);
   const trialExpired = isTrial && trialDays === 0;
 
   const handleToggleAgent = async () => {

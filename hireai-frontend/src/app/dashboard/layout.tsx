@@ -9,6 +9,7 @@ import { PageLoader } from "@/components/shared/page-loader";
 import { Chatbot } from "@/components/shared/chatbot";
 import { PushPrompt } from "@/components/shared/push-prompt";
 import { setAuthToken, getAuthToken } from "@/lib/api";
+import { useAgentStatus } from "@/hooks/use-dashboard";
 
 function TrialExpiredModal() {
   const router = useRouter();
@@ -44,45 +45,36 @@ function TrialExpiredModal() {
   );
 }
 
-function isTrialExpired(trialEndDate?: string): boolean {
-  if (!trialEndDate) return false;
-  return new Date(trialEndDate).getTime() < Date.now();
-}
-
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const { session, status } = useAuth();
+  const { data: agentStatus } = useAgentStatus();
   const [showTrialModal, setShowTrialModal] = useState(false);
 
-  // Check trial expiry
+  // Check trial expiry from backend (single source of truth)
   useEffect(() => {
-    if (!session?.user) return;
-    const tier = (session.user as Record<string, unknown>).tier as string;
-    const trialEnd = (session.user as Record<string, unknown>).trialEndDate as string | undefined;
-    if (tier === "trial" && isTrialExpired(trialEnd)) {
+    if (!agentStatus) return;
+    if (agentStatus.tier === "trial" && agentStatus.trial_days_left === 0 && agentStatus.trial_end_date) {
       setShowTrialModal(true);
     }
-  }, [session?.user]);
+  }, [agentStatus]);
 
   // Sync backend JWT from NextAuth session to localStorage (for Google login)
   useEffect(() => {
     if (!session?.user?.email) return;
 
-    // If we already have a token, skip
     const existingToken = getAuthToken();
     if (existingToken) return;
 
-    // Try to pull token from NextAuth session first
     const backendToken = (session as unknown as Record<string, unknown>).accessToken as string;
     if (backendToken) {
       setAuthToken(backendToken);
       return;
     }
 
-    // Fallback: fetch fresh token from backend
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     if (!apiUrl) return;
 
@@ -114,8 +106,10 @@ export default function DashboardLayout({
     return <PageLoader />;
   }
 
-  // Show setup wizard only if setupComplete is explicitly false
-  if (session?.user && session.user.setupComplete === false) {
+  // Show setup wizard only for new users without agent config
+  // Skip for existing users who already have setup_complete=true OR have agent status
+  const isNewUser = session?.user && session.user.setupComplete === false && !agentStatus?.setup_complete;
+  if (isNewUser) {
     return <SetupWizard />;
   }
 

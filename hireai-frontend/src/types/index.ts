@@ -70,6 +70,9 @@ export interface AgentStatus {
   gmail_valid: boolean;
   last_processed?: Date;
   last_error?: string;
+  trial_end_date?: string;
+  trial_days_left?: number;
+  setup_complete?: boolean;
 }
 
 /**

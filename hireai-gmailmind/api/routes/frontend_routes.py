@@ -143,7 +143,10 @@ async def get_recent_emails(
 
 @router.get("/agent/status")
 async def get_agent_status(user: dict = Depends(get_current_user)):
-    """Get current agent status for the user."""
+    """Get current agent status for the user (single source of truth).
+
+    Joins user_agents with users to include tier and trial info.
+    """
     user_id = user.get("sub", "")
 
     try:
@@ -151,11 +154,13 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
         try:
             row = db.execute(
                 text("""
-                    SELECT agent_type, tier, model, is_paused, test_mode,
-                           gmail_email, gmail_token_valid,
-                           last_processed_at, last_error
-                    FROM user_agents
-                    WHERE user_id = :uid
+                    SELECT ua.agent_type, u.tier, ua.model, ua.is_paused, ua.test_mode,
+                           ua.gmail_email, ua.gmail_token_valid,
+                           ua.last_processed_at, ua.last_error,
+                           u.trial_end_date, u.setup_complete
+                    FROM user_agents ua
+                    JOIN users u ON CAST(u.id AS VARCHAR) = ua.user_id
+                    WHERE ua.user_id = :uid
                     LIMIT 1
                 """),
                 {"uid": user_id},
@@ -163,19 +168,33 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
 
             if row:
                 gmail_email = row[5] or ""
+                tier = row[1] or "trial"
+                trial_end = row[9]
+
+                # Calculate trial days left
+                trial_days_left = 0
+                if tier == "trial" and trial_end:
+                    if hasattr(trial_end, "tzinfo") and trial_end.tzinfo is None:
+                        trial_end = trial_end.replace(tzinfo=timezone.utc)
+                    diff = trial_end - datetime.now(timezone.utc)
+                    trial_days_left = max(0, diff.days + (1 if diff.seconds > 0 else 0))
+
                 return _ok({
                     "is_running": not row[3],
                     "is_paused": row[3] or False,
                     "test_mode": row[4] or False,
                     "agent_type": row[0] or "general",
-                    "tier": row[1] or "trial",
-                    "model": row[2] or "claude-3-5-haiku-latest",
+                    "tier": tier,
+                    "model": row[2] or "claude-haiku-4-5-20251001",
                     "gmail_connected": gmail_email,
                     "gmail_email": gmail_email,
                     "is_connected": bool(gmail_email),
                     "gmail_valid": row[6] if row[6] is not None else bool(gmail_email),
                     "last_processed": row[7].isoformat() if row[7] else None,
                     "last_error": row[8],
+                    "trial_end_date": trial_end.isoformat() if trial_end else None,
+                    "trial_days_left": trial_days_left,
+                    "setup_complete": row[10] if row[10] is not None else False,
                 })
         finally:
             db.close()
@@ -189,13 +208,16 @@ async def get_agent_status(user: dict = Depends(get_current_user)):
         "test_mode": False,
         "agent_type": "general",
         "tier": "trial",
-        "model": "claude-3-5-haiku-latest",
+        "model": "claude-haiku-4-5-20251001",
         "gmail_connected": "",
         "gmail_email": "",
         "is_connected": False,
         "gmail_valid": False,
         "last_processed": None,
         "last_error": None,
+        "trial_end_date": None,
+        "trial_days_left": 0,
+        "setup_complete": False,
     })
 
 
@@ -324,10 +346,10 @@ async def start_agent(user: dict = Depends(get_current_user)):
         finally:
             db.close()
 
-        # Dispatch Celery task
+        # Run agent in background
         try:
-            from scheduler.tasks import run_gmailmind_for_user
-            run_gmailmind_for_user.delay(user_id)
+            from jobs import run_gmailmind_for_user, run_in_background
+            run_in_background(run_gmailmind_for_user, user_id)
         except Exception:
             pass
 
